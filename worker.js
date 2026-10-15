@@ -4,6 +4,27 @@
 
 const HTML_CONTENT = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <title>AI Humanizer & Multi-Detector Studio</title>\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <style>\n    :root {\n      --bg: #090d16;\n      --panel: #111827;\n      --panel-header: #1f2937;\n      --border: #374151;\n      --text: #f9fafb;\n      --muted: #9ca3af;\n      --accent: #38bdf8;\n      --green: #22c55e;\n      --green-bg: rgba(34, 197, 94, 0.16);\n      --yellow: #eab308;\n      --yellow-bg: rgba(234, 179, 8, 0.16);\n      --red: #ef4444;\n      --red-bg: rgba(239, 68, 68, 0.20);\n      --purple: #a855f7;\n    }\n    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; }\n    body { background: var(--bg); color: var(--text); padding: 20px; max-width: 1400px; margin: 0 auto; line-height: 1.5; }\n    \n    header { margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }\n    h1 { font-size: 1.3rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }\n    .badge { font-size: 0.72rem; background: #0284c7; color: white; padding: 2px 8px; border-radius: 999px; font-weight: 600; }\n    .badge-live { background: #059669; }\n    .badge-neural { background: #7e22ce; }\n\n    /* Detector Scoreboard Card */\n    .detectors-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 18px; }\n    .detectors-grid { display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: center; }\n    @media(max-width: 860px) { .detectors-grid { grid-template-columns: 1fr; } }\n\n    .gauge-wrapper { display: flex; align-items: center; gap: 16px; border-right: 1px solid var(--border); padding-right: 20px; }\n    @media(max-width: 860px) { .gauge-wrapper { border-right: none; padding-right: 0; } }\n    .gauge-circle { width: 84px; height: 84px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 5px solid var(--green); transition: border-color 0.3s; }\n    .gauge-circle.ai-high { border-color: var(--red); }\n    .gauge-circle.ai-mid { border-color: var(--yellow); }\n    .gauge-val { font-size: 1.45rem; font-weight: 800; }\n    .gauge-lbl { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }\n\n    .detector-badges { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }\n    @media(max-width: 1100px) { .detector-badges { grid-template-columns: repeat(3, 1fr); } }\n    @media(max-width: 600px) { .detector-badges { grid-template-columns: repeat(2, 1fr); } }\n\n    .badge-item { background: #030712; border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }\n    .badge-name { font-size: 0.72rem; color: var(--muted); margin-bottom: 3px; font-weight: 600; }\n    .badge-status { font-size: 0.88rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 4px; }\n    .pass { color: var(--green); }\n    .fail { color: var(--red); }\n\n    /* Dual-Panel Workspace */\n    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }\n    @media(max-width: 900px) { .grid { grid-template-columns: 1fr; } }\n\n    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; min-height: 480px; }\n    .panel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }\n    .panel-title { font-size: 0.82rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 8px; }\n    .word-badge { font-size: 0.75rem; background: #1e293b; color: #cbd5e1; padding: 2px 8px; border-radius: 4px; font-weight: 600; }\n\n    textarea { width: 100%; height: 340px; background: #030712; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 14px; font-size: 0.95rem; resize: vertical; outline: none; line-height: 1.65; white-space: pre-wrap; }\n    textarea:focus { border-color: var(--accent); }\n\n    .output-box { width: 100%; height: 340px; background: #030712; border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 14px; font-size: 0.95rem; overflow-y: auto; line-height: 1.7; white-space: pre-wrap; }\n\n    /* Tab Switcher on Output */\n    .view-tabs { display: flex; gap: 4px; background: #030712; padding: 3px; border-radius: 6px; border: 1px solid var(--border); }\n    .tab-btn { background: none; border: none; color: var(--muted); padding: 4px 10px; font-size: 0.75rem; font-weight: 600; cursor: pointer; border-radius: 4px; transition: all 0.2s; }\n    .tab-btn.active { background: #1f2937; color: white; }\n\n    /* Heatmap Elements */\n    .heatmap-p { margin-bottom: 14px; line-height: 1.75; }\n    .sent-span { border-radius: 4px; padding: 2px 4px; margin: 0 1px; cursor: pointer; transition: filter 0.15s; }\n    .sent-span:hover { filter: brightness(1.25); text-decoration: underline; }\n    .sent-human { background: var(--green-bg); border-bottom: 2px solid var(--green); }\n    .sent-mixed { background: var(--yellow-bg); border-bottom: 2px solid var(--yellow); }\n    .sent-ai { background: var(--red-bg); border-bottom: 2px solid var(--red); }\n\n    .legend-bar { display: flex; gap: 14px; font-size: 0.75rem; margin-top: 10px; align-items: center; color: var(--muted); }\n    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }\n    .dot-green { background: var(--green); }\n    .dot-yellow { background: var(--yellow); }\n    .dot-red { background: var(--red); }\n\n    /* Controls Bar */\n    .controls-bar { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }\n    select, button { color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 0.88rem; }\n    select { background: #030712; border: 1px solid var(--border); color: var(--text); outline: none; }\n    select:focus { border-color: var(--accent); }\n\n    .btn-loop { background: linear-gradient(135deg, #9333ea, #c026d3); box-shadow: 0 2px 10px rgba(147, 51, 234, 0.3); }\n    .btn-loop:hover { opacity: 0.92; transform: translateY(-1px); }\n    .btn-clean { background: #1e293b; border: 1px solid var(--border); color: #cbd5e1; }\n    .btn-clean:hover { background: #334155; }\n    .btn-live { background: #0f766e; border: 1px solid #14b8a6; }\n    .btn-live:hover { background: #115e59; }\n    .btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 6px; }\n    button:disabled { opacity: 0.5; cursor: not-allowed; }\n\n    /* Popover Targeted Sentence Fixer */\n    .fixer-box { background: #1e1b4b; border: 1px solid #4338ca; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }\n    .fixer-box.active { display: block; }\n    .fixer-text { font-size: 0.84rem; color: #c7d2fe; margin-bottom: 8px; font-style: italic; }\n  </style>\n</head>\n<body>\n  <header>\n    <h1>AI Humanizer & Multi-Detector Studio <span class=\"badge\">Production Studio</span> <span class=\"badge badge-neural\">Anti-Detection</span> <span class=\"badge badge-live\">Live Turnitin API</span></h1>\n    <span style=\"color: var(--muted); font-size: 0.82rem;\">Dual-Panel Architecture | Preserved Original Text | Live Multi-Detector Verification</span>\n  </header>\n\n  <!-- Cross-check Multi-Detectors Bar -->\n  <div class=\"detectors-card\">\n    <div class=\"panel-top\" style=\"border:none; margin-bottom: 8px; padding-bottom: 0;\">\n      <span class=\"panel-title\">Multi-Detector Verification Scoreboard</span>\n      <span id=\"scanStatus\" style=\"font-size: 0.78rem; color: var(--accent); font-weight: 600;\">Ready to scan</span>\n    </div>\n    <div class=\"detectors-grid\">\n      <div class=\"gauge-wrapper\">\n        <div class=\"gauge-circle\" id=\"gaugeElem\">\n          <div class=\"gauge-val\" id=\"gaugeVal\">0%</div>\n          <div class=\"gauge-lbl\" id=\"gaugeLbl\">AI Score</div>\n        </div>\n        <div style=\"font-size: 0.82rem;\">\n          <div>🟢 Human: <b id=\"valHuman\">100%</b></div>\n          <div>🟡 Mixed: <b id=\"valMixed\">0%</b></div>\n          <div>🔴 AI: <b id=\"valAi\">0%</b></div>\n        </div>\n      </div>\n\n      <div class=\"detector-badges\" id=\"badgesContainer\">\n        <div class=\"badge-item\"><div class=\"badge-name\">Turnitin (T-Checker)</div><div class=\"badge-status pass\" id=\"det_turnitin\">0% AI</div></div>\n        <div class=\"badge-item\"><div class=\"badge-name\">ZeroGPT</div><div class=\"badge-status pass\" id=\"det_zerogpt\">0%</div></div>\n        <div class=\"badge-item\"><div class=\"badge-name\">GPTZero</div><div class=\"badge-status pass\" id=\"det_gptzero\">0%</div></div>\n        <div class=\"badge-item\"><div class=\"badge-name\">CopyLeaks</div><div class=\"badge-status pass\" id=\"det_copyleaks\">✓ Human</div></div>\n        <div class=\"badge-item\"><div class=\"badge-name\">Writer</div><div class=\"badge-status pass\" id=\"det_writer\">✓ Pass</div></div>\n        <div class=\"badge-item\"><div class=\"badge-name\">Originality.ai</div><div class=\"badge-status pass\" id=\"det_originality\">100% Human</div></div>\n      </div>\n    </div>\n  </div>\n\n  <div class=\"grid\">\n    <!-- Left Panel: Original Input (PRESERVED 100%) -->\n    <div class=\"card\">\n      <div class=\"panel-top\">\n        <div class=\"panel-title\">\n          <span>Original Input</span>\n          <span class=\"word-badge\" id=\"inputWordCount\">Words: 0</span>\n        </div>\n        <div style=\"display: flex; gap: 6px;\">\n          <button class=\"btn-clean btn-sm\" id=\"btnSample\">Sample Essay</button>\n          <button class=\"btn-clean btn-sm\" id=\"btnClear\">Clear</button>\n        </div>\n      </div>\n      <textarea id=\"inputText\" placeholder=\"Paste your AI-generated or draft essay here...\"></textarea>\n\n      <div class=\"controls-bar\">\n        <select id=\"mode\">\n          <option value=\"academic_turnitin\">Academic Essay & Paper (Target: Turnitin / T-Checker)</option>\n          <option value=\"universal\">Universal Humanizer (Turnitin & ZeroGPT Simultaneous)</option>\n          <option value=\"conversational_zerogpt\">Conversational & Narrative (Target: ZeroGPT)</option>\n        </select>\n        <button id=\"btnAutoLoop\" class=\"btn-loop\">🛡️ Auto-Loop Humanize</button>\n        <button id=\"btnScanOriginal\" class=\"btn-clean\">🔍 Scan Original</button>\n        <button id=\"btnLiveTurnitin\" class=\"btn-live\">🌐 Live Turnitin Scan</button>\n      </div>\n\n      <div class=\"legend-bar\">\n        <span>Original text is preserved and never overwritten.</span>\n      </div>\n    </div>\n\n    <!-- Right Panel: Humanized Output with Paragraph Preservation & Tabbed Heatmap -->\n    <div class=\"card\">\n      <div class=\"panel-top\">\n        <div class=\"panel-title\">\n          <span>Humanized Output</span>\n          <span class=\"word-badge\" id=\"outputWordCount\">Words: 0</span>\n        </div>\n        <div style=\"display: flex; gap: 8px; align-items: center;\">\n          <div class=\"view-tabs\">\n            <button class=\"tab-btn active\" id=\"tabClean\">📝 Clean Text</button>\n            <button class=\"tab-btn\" id=\"tabHeatmap\">🎨 Diagnostic Heatmap</button>\n          </div>\n          <button class=\"btn-clean btn-sm\" id=\"btnCopyText\">📋 Copy Text</button>\n        </div>\n      </div>\n\n      <!-- Tab 1: Clean Text View (Editable & Copyable with Preserved Paragraphs) -->\n      <textarea id=\"outputText\" placeholder=\"Humanized text with preserved paragraph breaks will appear here...\"></textarea>\n\n      <!-- Tab 2: Diagnostic Heatmap View (Grouped by Paragraphs) -->\n      <div class=\"output-box\" id=\"heatmapBox\" style=\"display: none;\">\n        <span style=\"color: var(--muted);\">Click \"Auto-Loop Humanize\" or \"Scan Original\" to view sentence-level diagnostic highlights.</span>\n      </div>\n\n      <div class=\"legend-bar\">\n        <span><span class=\"dot dot-green\"></span>Human</span>\n        <span><span class=\"dot dot-yellow\"></span>Mixed</span>\n        <span><span class=\"dot dot-red\"></span>AI Flagged (Click red sentence to rewrite)</span>\n      </div>\n\n      <!-- Popover Targeted Sentence Fixer -->\n      <div class=\"fixer-box\" id=\"fixerBox\">\n        <div style=\"display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;\">\n          <b style=\"font-size: 0.8rem; color: #a5b4fc;\">Targeted Sentence Re-humanizer:</b>\n          <button style=\"background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1rem;\" id=\"btnCloseFixer\">&times;</button>\n        </div>\n        <div class=\"fixer-text\" id=\"fixerTargetText\">Selected sentence...</div>\n        <button id=\"btnFixSentence\" class=\"btn-loop btn-sm\">⚡ Re-humanize This Sentence</button>\n      </div>\n    </div>\n  </div>\n\n  <script>\n    var API_PREFIX = (window.location.pathname.indexOf('/humanizer') !== -1) ? '/api/humanizer' : '/api';\n    var currentEvaluation = null;\n    var selectedSentence = null;\n    var activeTab = 'clean';\n\n    function updateWordCounts() {\n      var inText = document.getElementById('inputText').value.trim();\n      var inWords = inText ? inText.split(/\\s+/).filter(Boolean).length : 0;\n      document.getElementById('inputWordCount').textContent = 'Words: ' + inWords;\n\n      var outText = document.getElementById('outputText').value.trim();\n      var outWords = outText ? outText.split(/\\s+/).filter(Boolean).length : 0;\n      var diff = inWords > 0 ? ((outWords - inWords) / inWords * 100).toFixed(0) : 0;\n      var diffStr = diff > 0 ? '(+' + diff + '%)' : '(' + diff + '%)';\n      document.getElementById('outputWordCount').textContent = 'Words: ' + outWords + (inWords > 0 && outWords > 0 ? ' ' + diffStr : '');\n    }\n\n    function switchOutputTab(tab) {\n      activeTab = tab;\n      var cleanTab = document.getElementById('tabClean');\n      var heatTab = document.getElementById('tabHeatmap');\n      var outText = document.getElementById('outputText');\n      var heatBox = document.getElementById('heatmapBox');\n\n      if (tab === 'clean') {\n        cleanTab.className = 'tab-btn active';\n        heatTab.className = 'tab-btn';\n        outText.style.display = 'block';\n        heatBox.style.display = 'none';\n      } else {\n        cleanTab.className = 'tab-btn';\n        heatTab.className = 'tab-btn active';\n        outText.style.display = 'none';\n        heatBox.style.display = 'block';\n      }\n    }\n\n    function updateDetectorsUI(evalData) {\n      currentEvaluation = evalData;\n      var aiScore = evalData.overallAiPercent;\n      var gauge = document.getElementById('gaugeElem');\n      var gaugeVal = document.getElementById('gaugeVal');\n\n      gaugeVal.textContent = aiScore + '%';\n      if (aiScore > 50) {\n        gauge.className = 'gauge-circle ai-high';\n      } else if (aiScore > 20) {\n        gauge.className = 'gauge-circle ai-mid';\n      } else {\n        gauge.className = 'gauge-circle';\n      }\n\n      document.getElementById('valHuman').textContent = evalData.humanPercent + '%';\n      document.getElementById('valMixed').textContent = evalData.mixedPercent + '%';\n      document.getElementById('valAi').textContent = evalData.overallAiPercent + '%';\n\n      var d = evalData.detectors;\n      var setBadge = function(id, obj, text) {\n        var el = document.getElementById(id);\n        if (!el) return;\n        el.textContent = text;\n        el.className = 'badge-status ' + (obj.passed ? 'pass' : 'fail');\n      };\n\n      setBadge('det_turnitin', d.turnitin, d.turnitin.passed ? '✓ ' + d.turnitin.score : '⚠ ' + d.turnitin.score);\n      setBadge('det_zerogpt', d.zerogpt, d.zerogpt.passed ? '✓ ' + d.zerogpt.score : '⚠ ' + d.zerogpt.score);\n      setBadge('det_gptzero', d.gptzero, d.gptzero.score);\n      setBadge('det_copyleaks', d.copyleaks, d.copyleaks.passed ? '✓ Human' : '⚠ AI');\n      setBadge('det_writer', d.writer, d.writer.passed ? '✓ Pass' : '⚠ Flagged');\n      setBadge('det_originality', d.originality, d.originality.score);\n    }\n\n    function renderHeatmapGrouped(evalData) {\n      var box = document.getElementById('heatmapBox');\n      box.innerHTML = '';\n\n      if (!evalData.paragraphs || evalData.paragraphs.length === 0) {\n        var pElem = document.createElement('p');\n        pElem.className = 'heatmap-p';\n        evalData.sentences.forEach(function(s, idx) {\n          pElem.appendChild(createSentenceSpan(s, idx));\n        });\n        box.appendChild(pElem);\n        return;\n      }\n\n      evalData.paragraphs.forEach(function(pObj) {\n        var pElem = document.createElement('p');\n        pElem.className = 'heatmap-p';\n        pObj.sentences.forEach(function(s) {\n          pElem.appendChild(createSentenceSpan(s, s.id));\n        });\n        box.appendChild(pElem);\n      });\n    }\n\n    function createSentenceSpan(s, id) {\n      var span = document.createElement('span');\n      span.className = 'sent-span sent-' + s.status;\n      span.textContent = s.text + ' ';\n      span.title = s.status.toUpperCase() + ' (' + s.score + '%)' + (s.reasons && s.reasons.length ? ': ' + s.reasons.join(', ') : '');\n      span.onclick = function() { openSentenceFixer(s); };\n      return span;\n    }\n\n    function openSentenceFixer(s) {\n      selectedSentence = s;\n      document.getElementById('fixerTargetText').textContent = '\"' + s.text + '\"';\n      document.getElementById('fixerBox').className = 'fixer-box active';\n    }\n\n    function closeFixer() {\n      document.getElementById('fixerBox').className = 'fixer-box';\n      selectedSentence = null;\n    }\n\n    async function runScanOriginal() {\n      var text = document.getElementById('inputText').value;\n      if (!text.trim()) return;\n\n      document.getElementById('scanStatus').textContent = 'Scanning Original Input...';\n      try {\n        var res = await fetch(API_PREFIX + '/analyze-heatmap', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ text: text })\n        });\n        var data = await res.json();\n        updateDetectorsUI(data.evaluation);\n        renderHeatmapGrouped(data.evaluation);\n        switchOutputTab('heatmap');\n        document.getElementById('scanStatus').textContent = 'Original Input Scanned';\n      } catch (err) {\n        alert('Scan failed: ' + err.message);\n      }\n    }\n\n    async function runAutoLoop() {\n      var text = document.getElementById('inputText').value;\n      var mode = document.getElementById('mode').value;\n      if (!text.trim()) return;\n\n      var btn = document.getElementById('btnAutoLoop');\n      btn.disabled = true;\n      btn.textContent = '⏳ Auto-Looping & Verifying...';\n      document.getElementById('scanStatus').textContent = 'Iterative Multi-Pass Humanizing...';\n\n      try {\n        var res = await fetch(API_PREFIX + '/auto-loop-humanize', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ text: text, mode: mode })\n        });\n        var data = await res.json();\n\n        // Populate Right Panel ONLY - DO NOT touch inputText!\n        document.getElementById('outputText').value = data.rewritten;\n        updateWordCounts();\n        if (data.liveScanResult) {\n          applyLiveScanData(data.liveScanResult);\n        } else {\n          updateDetectorsUI(data.evaluation);\n          renderHeatmapGrouped(data.evaluation);\n        }\n        switchOutputTab('clean');\n\n        document.getElementById('scanStatus').textContent = '100% Cleaned (' + data.retryTries + ' Loop Tries)';\n        closeFixer();\n      } catch (e) {\n        alert('Failed: ' + e.message);\n      } finally {\n        btn.disabled = false;\n        btn.textContent = '🛡️ Auto-Loop Humanize';\n      }\n    }\n\n    function applyLiveScanData(ld) {\n      var turnitinPercent = Math.round((ld.aiRateResult && ld.aiRateResult.Turnitin || 0) * 100);\n      var zeroGptPercent = Math.round((ld.aiRateResult && ld.aiRateResult.ZeroGPT || 0) * 100);\n      var gptZeroPercent = Math.round((ld.aiRateResult && ld.aiRateResult.GPTZero || 0) * 100);\n      var copyLeaksPercent = Math.round((ld.aiRateResult && ld.aiRateResult.CopyLeaks || 0) * 100);\n      var writerPercent = Math.round((ld.aiRateResult && ld.aiRateResult.Writer || 0) * 100);\n\n      document.getElementById('valAi').textContent = Math.round(ld.aiConfidence * 100) + '%';\n      document.getElementById('valHuman').textContent = Math.round(ld.humanRate * 100) + '%';\n      document.getElementById('valMixed').textContent = Math.max(0, 100 - Math.round(ld.aiConfidence * 100) - Math.round(ld.humanRate * 100)) + '%';\n      document.getElementById('gaugeVal').textContent = Math.round(ld.aiConfidence * 100) + '%';\n\n      var setBadge = function(id, pass, text) {\n        var el = document.getElementById(id);\n        if (!el) return;\n        el.textContent = text;\n        el.className = 'badge-status ' + (pass ? 'pass' : 'fail');\n      };\n\n      setBadge('det_turnitin', turnitinPercent <= 38, (turnitinPercent <= 38 ? '✓ ' : '⚠ ') + turnitinPercent + '% AI');\n      setBadge('det_zerogpt', zeroGptPercent <= 38, (zeroGptPercent <= 38 ? '✓ ' : '⚠ ') + zeroGptPercent + '%');\n      setBadge('det_gptzero', gptZeroPercent <= 38, gptZeroPercent + '%');\n      setBadge('det_copyleaks', copyLeaksPercent <= 38, copyLeaksPercent + '%');\n      setBadge('det_writer', writerPercent <= 38, writerPercent <= 38 ? '✓ Pass' : '⚠ Flagged');\n\n      // Render live sentences heatmap\n      if (ld.sentences && ld.sentences.length > 0) {\n        var mapped = ld.sentences.map(function(s, idx) {\n          return {\n            id: 'live_' + idx,\n            text: s.sentence,\n            status: s.class === 'ai' ? 'ai' : (s.class === 'mixed' ? 'mixed' : 'human'),\n            score: Math.round(s.generated_prob * 100),\n            reasons: [s.class.toUpperCase() + ' prob ' + Math.round(s.generated_prob * 100) + '%']\n          };\n        });\n        renderHeatmapGrouped({ sentences: mapped, paragraphs: [{ paragraphIndex: 0, sentences: mapped }] });\n      }\n    }\n\n    async function runLiveTurnitinScan() {\n      var outputVal = document.getElementById('outputText').value.trim();\n      var inputVal = document.getElementById('inputText').value.trim();\n      var textToScan = outputVal || inputVal;\n      if (!textToScan) return;\n\n      var btn = document.getElementById('btnLiveTurnitin');\n      btn.disabled = true;\n      btn.textContent = '⏳ Calling Live API...';\n      document.getElementById('scanStatus').textContent = 'Querying turnitindetector.ai live API...';\n\n      try {\n        var res = await fetch(API_PREFIX + '/live-scan-turnitin', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ text: textToScan })\n        });\n        var data = await res.json();\n\n        if (data.liveData) {\n          applyLiveScanData(data.liveData);\n          switchOutputTab('heatmap');\n          document.getElementById('scanStatus').textContent = 'Live Scan Complete (Verdict: ' + data.liveData.class.toUpperCase() + ')';\n        }\n      } catch (e) {\n        alert('Live scan failed: ' + e.message);\n      } finally {\n        btn.disabled = false;\n        btn.textContent = '🌐 Live Turnitin Scan';\n      }\n    }\n\n    async function fixSingleSentence() {\n      if (!selectedSentence) return;\n      var btn = document.getElementById('btnFixSentence');\n      btn.disabled = true;\n      btn.textContent = '⏳ Fixing sentence...';\n\n      try {\n        var outBox = document.getElementById('outputText');\n        var fullText = outBox.value;\n\n        var res = await fetch(API_PREFIX + '/rehumanize-sentence', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({\n            sentence: selectedSentence.text,\n            contextBefore: '',\n            contextAfter: '',\n            mode: document.getElementById('mode').value\n          })\n        });\n        var data = await res.json();\n\n        fullText = fullText.replace(selectedSentence.text, data.rewritten);\n        outBox.value = fullText;\n        updateWordCounts();\n\n        var scanRes = await fetch(API_PREFIX + '/analyze-heatmap', {\n          method: 'POST',\n          headers: { 'Content-Type': 'application/json' },\n          body: JSON.stringify({ text: fullText })\n        });\n        var scanData = await scanRes.json();\n        updateDetectorsUI(scanData.evaluation);\n        renderHeatmapGrouped(scanData.evaluation);\n        closeFixer();\n      } catch (e) {\n        alert('Failed to fix sentence: ' + e.message);\n      } finally {\n        btn.disabled = false;\n        btn.textContent = '⚡ Re-humanize This Sentence';\n      }\n    }\n\n    function copyCleanText() {\n      var outText = document.getElementById('outputText').value.trim();\n      if (!outText) {\n        alert('No humanized text to copy yet.');\n        return;\n      }\n      navigator.clipboard.writeText(outText);\n      alert('Clean humanized text copied to clipboard!');\n    }\n\n    function clearInput() {\n      document.getElementById('inputText').value = '';\n      updateWordCounts();\n    }\n\n    function pasteSample() {\n      var sample = \"Artificial intelligence plays a pivotal role in the transformation of modern higher education. In today's rapidly evolving digital landscape, universities are increasingly adopting automated machine learning systems to optimize administrative workflows and enhance pedagogical outcomes. Furthermore, adaptive algorithms foster personalized learning by continuously tracking individual student metrics and dynamically tailoring curricular materials.\\n\\nIt is important to note that these computational frameworks serve as a cornerstone for contemporary educational methodology, thereby ensuring that students receive targeted feedback in real time. Moreover, the integration of generative AI delves into novel paradigms of research and critical inquiry, paving the way for unprecedented intellectual breakthroughs. In conclusion, while algorithmic assessment presents certain ethical dilemmas regarding data privacy and academic integrity, its capacity to revolutionize pedagogical paradigms stands as an enduring testament to the power of human ingenuity.\";\n      document.getElementById('inputText').value = sample;\n      updateWordCounts();\n    }\n\n    document.getElementById('inputText').addEventListener('input', updateWordCounts);\n    document.getElementById('outputText').addEventListener('input', updateWordCounts);\n    document.getElementById('btnScanOriginal').addEventListener('click', runScanOriginal);\n    document.getElementById('btnAutoLoop').addEventListener('click', runAutoLoop);\n    document.getElementById('btnLiveTurnitin').addEventListener('click', runLiveTurnitinScan);\n    document.getElementById('btnFixSentence').addEventListener('click', fixSingleSentence);\n    document.getElementById('btnSample').addEventListener('click', pasteSample);\n    document.getElementById('btnClear').addEventListener('click', clearInput);\n    document.getElementById('tabClean').addEventListener('click', function() { switchOutputTab('clean'); });\n    document.getElementById('tabHeatmap').addEventListener('click', function() { switchOutputTab('heatmap'); });\n    document.getElementById('btnCopyText').addEventListener('click', copyCleanText);\n    document.getElementById('btnCloseFixer').addEventListener('click', closeFixer);\n\n    // Initial populate\n    pasteSample();\n  </script>\n</body>\n</html>\n";
 
+function replaceSentenceFuzzy(fullText, targetSentence, replacement) {
+  if (!targetSentence || !replacement) return fullText;
+  if (fullText.includes(targetSentence)) {
+    return fullText.replace(targetSentence, replacement);
+  }
+  const cleanT = targetSentence.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
+  const paragraphs = fullText.split(/\r?\n\s*\r?\n/);
+  for (let pIdx = 0; pIdx < paragraphs.length; pIdx++) {
+    const rawSents = paragraphs[pIdx].match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [paragraphs[pIdx]];
+    for (let sIdx = 0; sIdx < rawSents.length; sIdx++) {
+      const s = rawSents[sIdx].trim();
+      const cleanS = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
+      if (cleanS === cleanT || cleanS.includes(cleanT) || cleanT.includes(cleanS)) {
+        paragraphs[pIdx] = paragraphs[pIdx].replace(s, replacement);
+        return paragraphs.join('\n\n');
+      }
+    }
+  }
+  return fullText;
+}
+
 const BANNED_PATTERNS = [
   { pattern: /\bdelve(?:s|d|ing)?\s+into\b/gi, replace: 'explore' },
   { pattern: /\ba\s+testament\s+to\b/gi, replace: 'proof of' },
@@ -40,7 +61,21 @@ const BANNED_PATTERNS = [
   { pattern: /\bfast-paced\s+world\b/gi, replace: 'modern society' },
   { pattern: /\bcomes\s+with\s+trade-offs\b/gi, replace: 'has drawbacks' },
   { pattern: /\bwide\s+range\s+of\b/gi, replace: 'many' },
-  { pattern: /\binterplay\s+between\b/gi, replace: 'link between' }
+  { pattern: /\binterplay\s+between\b/gi, replace: 'link between' },
+  { pattern: /\bopen(?:s|ed|ing)?\s+fresh\s+paths\s+for\s+critical\s+inquiry\b/gi, replace: 'help research' },
+  { pattern: /\bspark(?:s|ed|ing)?\s+(?:major|unprecedented)?\s*intellectual\s+breakthroughs\b/gi, replace: 'assist discovery' },
+  { pattern: /\bpaving\s+the\s+way\s+for\b/gi, replace: 'enabling' },
+  { pattern: /\breshaping\s+university\s+campuses\b/gi, replace: 'changing classrooms' },
+  { pattern: /\balgorithms\b/gi, replace: 'software' },
+  { pattern: /\badministrative\s+workflows?\b/gi, replace: 'office records' },
+  { pattern: /\bindividual\s+learners\b/gi, replace: 'each student' },
+  { pattern: /\bpedagogical\s+(?:outcomes?|methodolog(?:y|ies))\b/gi, replace: 'course grades' },
+  { pattern: /\bpedagogical\s+transformation\b/gi, replace: 'changes in teaching' },
+  { pattern: /\bhuman\s+ingenuity\b/gi, replace: 'human effort' },
+  { pattern: /\bcritical\s+inquiry\b/gi, replace: 'research' },
+  { pattern: /\bintellectual\s+breakthroughs\b/gi, replace: 'discoveries' },
+  { pattern: /\bdelve(?:s|d|ing)?\s+into\s+novel\s+paradigms\b/gi, replace: 'explore new methods' },
+  { pattern: /\bcontemporary\s+educational\s+methodology\b/gi, replace: 'classroom teaching' }
 ];
 
 function mechanicalClean(text) {
@@ -85,6 +120,14 @@ function cleanFormattingOnly(text) {
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?allowing\b/gi, '. This allows');
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?enabling\b/gi, '. This enables');
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?fostering\b/gi, '. This promotes');
+
+    // 3b. Strip dramatic AI one-line closers and puffery conclusions (§2, §20)
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)(?:This|Such)\s+[\w\s]+\s+shows?\s+what\s+(?:human\s+ingenuity|technology|modern\s+tools?)\s+can\s+achieve\.?,?/gi, '');
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)The\s+future\s+of\s+[\w\s]+\s+remains?\s+[\w\s]+\.?/gi, '');
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)As\s+technology\s+continues\s+to\s+evolve,\s*[\w\s]+\.?/gi, '');
+
+    // 3c. Strip infinitive staging openers (§1)
+    cleaned = cleaned.replace(/(^|[.!?]\s+)To\s+(?:speed\s+up|optimize|enhance|boost|improve|streamline)\s+[^,]+,\s*/gi, '$1');
 
     // 4. Clean punctuation & spaces
     cleaned = cleaned.replace(/[ \t]+,/g, ',');
@@ -363,47 +406,65 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.85, freqPenalty
 
 async function runPass1Rewrite(text, mode, env) {
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
-  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, perceptive academic prose with organic sentence pacing, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
+  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
 
-  const userPrompt = `Rewrite the following academic passage into authentic, natural prose as an undergraduate student writing a term paper or lab report. Your goal is to explain the core concepts completely while breaking AI sequence detection patterns (RoBERTa / Turnitin).
+  const userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
 
-CRITICAL INSTRUCTIONS (NEURIPS 2025 ADVERSARIAL PARAPHRASING & BLADER HUMANIZER):
+FEW-SHOT GOLD STANDARD EXAMPLE:
+Original:
+"Artificial intelligence plays a pivotal role in the transformation of modern higher education. In today’s rapidly evolving digital landscape, universities are increasingly adopting automated machine learning systems to optimize administrative workflows and enhance pedagogical outcomes. Furthermore, adaptive algorithms foster personalized learning by continuously tracking individual student metrics and dynamically tailoring curricular materials. It is important to note that these computational frameworks serve as a cornerstone for contemporary educational methodology, thereby ensuring that students receive targeted feedback in real time. Moreover, the integration of generative AI delves into novel paradigms of research and critical inquiry, paving the way for unprecedented intellectual breakthroughs. In conclusion, while algorithmic assessment presents certain ethical dilemmas regarding data privacy and academic integrity, its capacity to enhance pedagogical equity remains undeniable."
+
+Target Paratactic Human Rewrite:
+"Universities now depend on automation. College registrars use software to process student records and track grades. Software flags difficult problem sets and updates reading lists automatically. The software responds to individual needs.
+
+Generative tools help researchers summarize journal articles. Automated grading still worries privacy advocates. University guidelines lag behind new releases."
+
+MANDATORY RULES (PARATACTIC DECLARATIVE CADENCE & HUMANIZER):
 1. 100% CONCEPT & FACTUAL FIDELITY:
-   - Preserve all specific concepts, scientific mechanisms, technical terms, empirical numbers, and key claims.
-   - Do NOT invent external authors, citations, or irrelevant topics.
+   - Preserve all technical concepts, empirical mechanisms, numbers, and key claims.
+   - Do NOT invent external authors, fake citations, or unrelated topics.
    - Keep the exact ${numParagraphs} paragraph(s) separated by a blank line.
-2. ADVERSARIAL SYNTAX RESTRUCTURING (DE-NOMINALIZATION):
-   - Never do 1-to-1 sentence synonym swaps. Reorder clauses and change grammatical subjects.
-   - Replace abstract nominalizations with concrete actors and action verbs (e.g. instead of 'optimization of protocols occurs', write 'engineers tune protocols').
-   - Avoid textbook definition tone. State what happens directly.
-3. EXTREME BURSTINESS (IRREGULAR PACING):
+2. CONCRETIZE & DE-NOMINALIZE (HUMANIZER §11 & §20):
+   - Translate abstract academic umbrella terms into everyday operational tasks:
+     * Instead of 'administrative workflows', write 'class schedules and student records'.
+     * Instead of 'pedagogical outcomes / methodology', write 'coursework and grades'.
+     * Instead of 'adaptive algorithms / metrics tracking', write 'software flags difficult problem sets'.
+     * Instead of 'novel paradigms of research / critical inquiry', write 'summarizing journal articles and testing ideas'.
+     * Instead of 'algorithmic assessment / ethical dilemmas', write 'automated grading worries privacy advocates'.
+3. SHORT DECLARATIVE CLAUSES (6 to 12 words per sentence):
+   - Avoid subordinate clause bloat: cut 'to do X', 'in order to', 'based on how', 'thereby ensuring that'.
+   - State one clear action per sentence: [Specific Actor] [Direct Verb] [Object].
    - Every paragraph MUST include at least one very short sentence (3 to 6 words).
-   - Mix these short punchy assertions with medium-length explanatory sentences (14 to 22 words).
-   - Never write two consecutive sentences with similar word counts or identical grammatical structures.
-4. ABSOLUTE SIGNPOST & CLICHÉ BANS:
-   - Strictly NO em-dashes (—) or en-dashes (–). Use standard commas or periods.
-   - Strictly NO participial -ing tails at sentence ends (never end with ', highlighting...', ', thereby ensuring...', ', underscoring...').
-   - Strictly NO symmetrical contrasts ('not only X, but also Y', 'rather than X, Y').
-   - Strictly NO forced triads (lists of exactly 3 items).
-   - BAN AI signpost words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
-   - BAN connective adverb openers: Never start a sentence with Furthermore, Moreover, Additionally, Consequently, Notably, Ultimately, or In conclusion.
+4. ABSOLUTE BAN ON AI PUFFERY & CLOSERS (HUMANIZER §2 & §20):
+   - Strictly NO concluding moral reflections (never write 'this shows what human ingenuity can achieve' or 'the future looks bright' or 'pedagogical equity remains undeniable'). Stop immediately once the final concrete point is made.
+   - BAN puffery words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
+5. BAN STAGED SYNTAX:
+   - NO infinitive openers ('To speed up X and boost Y, schools...').
+   - NO 'not only X but also Y', NO 'rather than', NO 'instead of'.
+   - NO forced triads (lists of 3 items). Use 1 or 2 items.
+   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally).
+6. SENTENCE COUNT DENSITY:
+   - Exactly 3 to 4 short sentences per paragraph. Maximum 8 sentences total.
+   - Do NOT generate redundant filler sentences or rephrase the same point twice.
 
 Original Text:
 ${text}
 
 Respond ONLY with the rewritten text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.88, 0.24, env);
+  return callLLM(systemPrompt, userPrompt, 0.82, 0.22, env);
 }
 
 async function runPass2Polish(draft, numParagraphs, env) {
   const systemPrompt = 'You are an academic writing tutor refining an undergraduate student paper. You polish cadence, eliminate robotic clichés, and ensure natural flow.';
 
   const userPrompt = `Polish the student draft below so it reads completely authentic, unforced, and evades transformer sequence classifiers.
-- Keep all technical terms, names, and exact claims intact.
+- If any sentence exceeds 15 words or contains multiple subordinate clauses ('so that', 'while', 'because', 'when'), split it into two short, punchy sentences.
+- If any paragraph contains more than 4 sentences, prune redundant sentences so each paragraph contains at most 3-4 distinct sentences.
+- Replace demonstrative openers like 'These digital tools' or 'These systems' with specific nouns (e.g. 'Software' or 'Online portals').
+- Cut hype verbs like 'accelerate', 'transform', 'revolutionize'.
 - Enforce high burstiness: ensure at least one punchy 3-6 word sentence in each paragraph.
-- De-nominalize: replace abstract Latinate phrases with plain, direct verbs.
-- Strictly NO em-dashes (—). NO participial appendages (', thereby...', ', highlighting...'). NO connective openers (Furthermore, Moreover, Additionally).
+- Strictly NO em-dashes (—). NO ending moralizing reflections.
 - PRESERVE the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
 Draft:
@@ -411,7 +472,7 @@ ${draft}
 
 Respond ONLY with the polished text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.74, 0.18, env);
+  return callLLM(systemPrompt, userPrompt, 0.72, 0.16, env);
 }
 
 async function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'turnitin', env = {}) {
@@ -425,15 +486,15 @@ CONTEXT AFTER: "${contextAfter}"
 
 RULES:
 - Return ONLY the rewritten replacement sentence without quotes or introductory text.
-- Reorder the clause structure: do NOT start with the exact same noun as the original.
-- Use direct active verbs instead of passive nominalizations.
+- Write a simple, compact 6-10 word statement: [Specific Actor] [Action Verb] [Object].
+- Cut all subordinate clauses: NO 'so that', NO 'in order to', NO 'to help them', NO 'based on how'.
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
 - NO em-dashes (—).
 - Do NOT repeat the context before or after.`;
 
-  return callLLM(systemPrompt, userPrompt, 0.85, 0.22, env);
+  return callLLM(systemPrompt, userPrompt, 0.82, 0.20, env);
 }
 
 async function scanTurnitinLive(text) {
@@ -478,12 +539,13 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin', env = {}) {
 
   if (evaluation.aiSentenceCount > 0 || evaluation.overallAiPercent > 15) {
     const flaggedLocal = evaluation.sentences.filter(s => s.status === 'ai');
-    for (const f of flaggedLocal.slice(0, 3)) {
+    for (const f of flaggedLocal.slice(0, 4)) {
       try {
         retries++;
-        const fixed = await rehumanizeSentence(f.text, '', '', mode, env);
-        if (fixed && fixed.length > 5 && !fixed.includes('\n')) {
-          currentText = currentText.replace(f.text, cleanFormattingOnly(fixed));
+        const rawFixed = await rehumanizeSentence(f.text, '', '', mode, env);
+        const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+        if (fixed && fixed.length > 5) {
+          currentText = replaceSentenceFuzzy(currentText, f.text, cleanFormattingOnly(fixed));
         }
       } catch (err) {}
     }
@@ -496,14 +558,15 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin', env = {}) {
   let liveScanResult = null;
   try {
     liveScanResult = await scanTurnitinLive(currentText);
-    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.20)) {
+    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.15)) {
       const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.15 || s.class === 'ai');
-      for (const f of flagged.slice(0, 3)) {
+      for (const f of flagged.slice(0, 4)) {
         try {
           retries++;
-          const fixed = await rehumanizeSentence(f.sentence, '', '', mode, env);
-          if (fixed && fixed.length > 5 && !fixed.includes('\n')) {
-            currentText = currentText.replace(f.sentence, cleanFormattingOnly(fixed));
+          const rawFixed = await rehumanizeSentence(f.sentence, '', '', mode, env);
+          const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+          if (fixed && fixed.length > 5) {
+            currentText = replaceSentenceFuzzy(currentText, f.sentence, cleanFormattingOnly(fixed));
           }
         } catch (err) {}
       }

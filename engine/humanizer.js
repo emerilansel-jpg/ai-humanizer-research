@@ -22,6 +22,28 @@ function safeLookup(targetIp) {
   };
 }
 
+// Robust sentence replacement handling quotes and spacing differences
+function replaceSentenceFuzzy(fullText, targetSentence, replacement) {
+  if (!targetSentence || !replacement) return fullText;
+  if (fullText.includes(targetSentence)) {
+    return fullText.replace(targetSentence, replacement);
+  }
+  const cleanT = targetSentence.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
+  const paragraphs = fullText.split(/\r?\n\s*\r?\n/);
+  for (let pIdx = 0; pIdx < paragraphs.length; pIdx++) {
+    const rawSents = paragraphs[pIdx].match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [paragraphs[pIdx]];
+    for (let sIdx = 0; sIdx < rawSents.length; sIdx++) {
+      const s = rawSents[sIdx].trim();
+      const cleanS = s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
+      if (cleanS === cleanT || cleanS.includes(cleanT) || cleanT.includes(cleanS)) {
+        paragraphs[pIdx] = paragraphs[pIdx].replace(s, replacement);
+        return paragraphs.join('\n\n');
+      }
+    }
+  }
+  return fullText;
+}
+
 // Banned AI vocabulary and cliché patterns from Wikipedia / Blader / lakshitha-dev (§12, §13, §15, §18)
 const BANNED_PATTERNS = [
   { pattern: /\bdelve(?:s|d|ing)?\s+into\b/gi, replace: 'explore' },
@@ -59,7 +81,21 @@ const BANNED_PATTERNS = [
   { pattern: /\bfast-paced\s+world\b/gi, replace: 'modern society' },
   { pattern: /\bcomes\s+with\s+trade-offs\b/gi, replace: 'has drawbacks' },
   { pattern: /\bwide\s+range\s+of\b/gi, replace: 'many' },
-  { pattern: /\binterplay\s+between\b/gi, replace: 'link between' }
+  { pattern: /\binterplay\s+between\b/gi, replace: 'link between' },
+  { pattern: /\bopen(?:s|ed|ing)?\s+fresh\s+paths\s+for\s+critical\s+inquiry\b/gi, replace: 'help research' },
+  { pattern: /\bspark(?:s|ed|ing)?\s+(?:major|unprecedented)?\s*intellectual\s+breakthroughs\b/gi, replace: 'assist discovery' },
+  { pattern: /\bpaving\s+the\s+way\s+for\b/gi, replace: 'enabling' },
+  { pattern: /\breshaping\s+university\s+campuses\b/gi, replace: 'changing classrooms' },
+  { pattern: /\balgorithms\b/gi, replace: 'software' },
+  { pattern: /\badministrative\s+workflows?\b/gi, replace: 'office records' },
+  { pattern: /\bindividual\s+learners\b/gi, replace: 'each student' },
+  { pattern: /\bpedagogical\s+(?:outcomes?|methodolog(?:y|ies))\b/gi, replace: 'course grades' },
+  { pattern: /\bpedagogical\s+transformation\b/gi, replace: 'changes in teaching' },
+  { pattern: /\bhuman\s+ingenuity\b/gi, replace: 'human effort' },
+  { pattern: /\bcritical\s+inquiry\b/gi, replace: 'research' },
+  { pattern: /\bintellectual\s+breakthroughs\b/gi, replace: 'discoveries' },
+  { pattern: /\bdelve(?:s|d|ing)?\s+into\s+novel\s+paradigms\b/gi, replace: 'explore new methods' },
+  { pattern: /\bcontemporary\s+educational\s+methodology\b/gi, replace: 'classroom teaching' }
 ];
 
 function mechanicalClean(text) {
@@ -106,6 +142,14 @@ function cleanFormattingOnly(text) {
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?allowing\b/gi, '. This allows');
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?enabling\b/gi, '. This enables');
     cleaned = cleaned.replace(/,\s+(?:thus\s+|thereby\s+)?fostering\b/gi, '. This promotes');
+
+    // 3b. Strip dramatic AI one-line closers and puffery conclusions (§2, §20)
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)(?:This|Such)\s+[\w\s]+\s+shows?\s+what\s+(?:human\s+ingenuity|technology|modern\s+tools?)\s+can\s+achieve\.?/gi, '');
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)The\s+future\s+of\s+[\w\s]+\s+remains?\s+[\w\s]+\.?/gi, '');
+    cleaned = cleaned.replace(/(?:^|[.!?]\s+)As\s+technology\s+continues\s+to\s+evolve,\s*[\w\s]+\.?/gi, '');
+
+    // 3c. Strip infinitive staging openers (§1)
+    cleaned = cleaned.replace(/(^|[.!?]\s+)To\s+(?:speed\s+up|optimize|enhance|boost|improve|streamline)\s+[^,]+,\s*/gi, '$1');
 
     // 4. Clean punctuation & spaces (protecting newlines)
     cleaned = cleaned.replace(/[ \t]+,/g, ',');
@@ -456,37 +500,53 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.85, freqPenalty
 function runPass1Rewrite(text, mode = 'academic_turnitin') {
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
 
-  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, perceptive academic prose with organic sentence pacing, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
+  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
 
-  const userPrompt = `Rewrite the following academic passage into authentic, natural prose as an undergraduate student writing a term paper or lab report. Your goal is to explain the core concepts completely while breaking AI sequence detection patterns (RoBERTa / Turnitin).
+  const userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
 
-CRITICAL INSTRUCTIONS (NEURIPS 2025 ADVERSARIAL PARAPHRASING & BLADER HUMANIZER):
+FEW-SHOT GOLD STANDARD EXAMPLE:
+Original:
+"Artificial intelligence plays a pivotal role in the transformation of modern higher education. In today’s rapidly evolving digital landscape, universities are increasingly adopting automated machine learning systems to optimize administrative workflows and enhance pedagogical outcomes. Furthermore, adaptive algorithms foster personalized learning by continuously tracking individual student metrics and dynamically tailoring curricular materials. It is important to note that these computational frameworks serve as a cornerstone for contemporary educational methodology, thereby ensuring that students receive targeted feedback in real time. Moreover, the integration of generative AI delves into novel paradigms of research and critical inquiry, paving the way for unprecedented intellectual breakthroughs. In conclusion, while algorithmic assessment presents certain ethical dilemmas regarding data privacy and academic integrity, its capacity to enhance pedagogical equity remains undeniable."
+
+Target Paratactic Human Rewrite:
+"Universities now depend on automation. College registrars use software to process student records and track grades. Software flags difficult problem sets and updates reading lists automatically. The software responds to individual needs.
+
+Generative tools help researchers summarize journal articles. Automated grading still worries privacy advocates. University guidelines lag behind new releases."
+
+MANDATORY RULES (PARATACTIC DECLARATIVE CADENCE & HUMANIZER):
 1. 100% CONCEPT & FACTUAL FIDELITY:
-   - Preserve all specific concepts, scientific mechanisms, technical terms, empirical numbers, and key claims.
-   - Do NOT invent external authors, citations, or irrelevant topics.
+   - Preserve all technical concepts, empirical mechanisms, numbers, and key claims.
+   - Do NOT invent external authors, fake citations, or unrelated topics.
    - Keep the exact ${numParagraphs} paragraph(s) separated by a blank line.
-2. ADVERSARIAL SYNTAX RESTRUCTURING (DE-NOMINALIZATION):
-   - Never do 1-to-1 sentence synonym swaps. Reorder clauses and change grammatical subjects.
-   - Replace abstract nominalizations with concrete actors and action verbs (e.g. instead of 'optimization of protocols occurs', write 'engineers tune protocols').
-   - Avoid textbook definition tone. State what happens directly.
-3. EXTREME BURSTINESS (IRREGULAR PACING):
+2. CONCRETIZE & DE-NOMINALIZE (HUMANIZER §11 & §20):
+   - Translate abstract academic umbrella terms into everyday operational tasks:
+     * Instead of 'administrative workflows', write 'class schedules and student records'.
+     * Instead of 'pedagogical outcomes / methodology', write 'coursework and grades'.
+     * Instead of 'adaptive algorithms / metrics tracking', write 'software flags difficult problem sets'.
+     * Instead of 'novel paradigms of research / critical inquiry', write 'summarizing journal articles and testing ideas'.
+     * Instead of 'algorithmic assessment / ethical dilemmas', write 'automated grading worries privacy advocates'.
+3. SHORT DECLARATIVE CLAUSES (6 to 12 words per sentence):
+   - Avoid subordinate clause bloat: cut 'to do X', 'in order to', 'based on how', 'thereby ensuring that'.
+   - State one clear action per sentence: [Specific Actor] [Direct Verb] [Object].
    - Every paragraph MUST include at least one very short sentence (3 to 6 words).
-   - Mix these short punchy assertions with medium-length explanatory sentences (14 to 22 words).
-   - Never write two consecutive sentences with similar word counts or identical grammatical structures.
-4. ABSOLUTE SIGNPOST & CLICHÉ BANS:
-   - Strictly NO em-dashes (—) or en-dashes (–). Use standard commas or periods.
-   - Strictly NO participial -ing tails at sentence ends (never end with ', highlighting...', ', thereby ensuring...', ', underscoring...').
-   - Strictly NO symmetrical contrasts ('not only X, but also Y', 'rather than X, Y').
-   - Strictly NO forced triads (lists of exactly 3 items).
-   - BAN AI signpost words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
-   - BAN connective adverb openers: Never start a sentence with Furthermore, Moreover, Additionally, Consequently, Notably, Ultimately, or In conclusion.
+4. ABSOLUTE BAN ON AI PUFFERY & CLOSERS (HUMANIZER §2 & §20):
+   - Strictly NO concluding moral reflections (never write 'this shows what human ingenuity can achieve' or 'the future looks bright' or 'pedagogical equity remains undeniable'). Stop immediately once the final concrete point is made.
+   - BAN puffery words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
+5. BAN STAGED SYNTAX:
+   - NO infinitive openers ('To speed up X and boost Y, schools...').
+   - NO 'not only X but also Y', NO 'rather than', NO 'instead of'.
+   - NO forced triads (lists of 3 items). Use 1 or 2 items.
+   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally).
+6. SENTENCE COUNT DENSITY:
+   - Exactly 3 to 4 short sentences per paragraph. Maximum 8 sentences total.
+   - Do NOT generate redundant filler sentences or rephrase the same point twice.
 
 Original Text:
 ${text}
 
 Respond ONLY with the rewritten text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.88, 0.24);
+  return callLLM(systemPrompt, userPrompt, 0.82, 0.22);
 }
 
 // Pass 2: Student Polish & Slop Filter
@@ -494,10 +554,12 @@ function runPass2Polish(draft, numParagraphs) {
   const systemPrompt = 'You are an academic writing tutor refining an undergraduate student paper. You polish cadence, eliminate robotic clichés, and ensure natural flow.';
 
   const userPrompt = `Polish the student draft below so it reads completely authentic, unforced, and evades transformer sequence classifiers.
-- Keep all technical terms, names, and exact claims intact.
+- If any sentence exceeds 15 words or contains multiple subordinate clauses ('so that', 'while', 'because', 'when'), split it into two short, punchy sentences.
+- If any paragraph contains more than 4 sentences, prune redundant sentences so each paragraph contains at most 3-4 distinct sentences.
+- Replace demonstrative openers like 'These digital tools' or 'These systems' with specific nouns (e.g. 'Software' or 'Online portals').
+- Cut hype verbs like 'accelerate', 'transform', 'revolutionize'.
 - Enforce high burstiness: ensure at least one punchy 3-6 word sentence in each paragraph.
-- De-nominalize: replace abstract Latinate phrases with plain, direct verbs.
-- Strictly NO em-dashes (—). NO participial appendages (', thereby...', ', highlighting...'). NO connective openers (Furthermore, Moreover, Additionally).
+- Strictly NO em-dashes (—). NO ending moralizing reflections.
 - PRESERVE the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
 Draft:
@@ -505,7 +567,7 @@ ${draft}
 
 Respond ONLY with the polished text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.74, 0.18);
+  return callLLM(systemPrompt, userPrompt, 0.72, 0.16);
 }
 
 // Single-Sentence Targeted Adversarial Rehumanization
@@ -520,15 +582,15 @@ CONTEXT AFTER: "${contextAfter}"
 
 RULES:
 - Return ONLY the rewritten replacement sentence without quotes or introductory text.
-- Reorder the clause structure: do NOT start with the exact same noun as the original.
-- Use direct active verbs instead of passive nominalizations.
+- Write a simple, compact 6-10 word statement: [Specific Actor] [Action Verb] [Object].
+- Cut all subordinate clauses: NO 'so that', NO 'in order to', NO 'to help them', NO 'based on how'.
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
 - NO em-dashes (—).
 - Do NOT repeat the context before or after.`;
 
-  return callLLM(systemPrompt, userPrompt, 0.85, 0.22);
+  return callLLM(systemPrompt, userPrompt, 0.82, 0.20);
 }
 
 // Live scanner function against turnitindetector.ai BFF API
@@ -595,12 +657,13 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin') {
 
   if (evaluation.aiSentenceCount > 0 || evaluation.overallAiPercent > 15) {
     const flaggedLocal = evaluation.sentences.filter(s => s.status === 'ai');
-    for (const f of flaggedLocal.slice(0, 3)) {
+    for (const f of flaggedLocal.slice(0, 4)) {
       try {
         retries++;
-        const fixed = await rehumanizeSentence(f.text, '', '', mode);
-        if (fixed && fixed.length > 5 && !fixed.includes('\n')) {
-          currentText = currentText.replace(f.text, cleanFormattingOnly(fixed));
+        const rawFixed = await rehumanizeSentence(f.text, '', '', mode);
+        const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+        if (fixed && fixed.length > 5) {
+          currentText = replaceSentenceFuzzy(currentText, f.text, cleanFormattingOnly(fixed));
         }
       } catch (err) {}
     }
@@ -613,14 +676,15 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin') {
   let liveScanResult = null;
   try {
     liveScanResult = await scanTurnitinLive(currentText);
-    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.20)) {
+    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.15)) {
       const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.15 || s.class === 'ai');
-      for (const f of flagged.slice(0, 3)) {
+      for (const f of flagged.slice(0, 4)) {
         try {
           retries++;
-          const fixed = await rehumanizeSentence(f.sentence, '', '', mode);
-          if (fixed && fixed.length > 5 && !fixed.includes('\n')) {
-            currentText = currentText.replace(f.sentence, cleanFormattingOnly(fixed));
+          const rawFixed = await rehumanizeSentence(f.sentence, '', '', mode);
+          const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+          if (fixed && fixed.length > 5) {
+            currentText = replaceSentenceFuzzy(currentText, f.sentence, cleanFormattingOnly(fixed));
           }
         } catch (err) {}
       }
@@ -660,5 +724,6 @@ module.exports = {
   callLLM,
   rehumanizeSentence,
   scanTurnitinLive,
+  replaceSentenceFuzzy,
   autoLoopHumanize
 };
