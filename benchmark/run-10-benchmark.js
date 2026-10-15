@@ -1,6 +1,10 @@
 // benchmark/run-10-benchmark.js
 // Executes 10 distinct subject runs (150 paragraphs total) with live Turnitin & ZeroGPT scanning.
 
+const dns = require('dns');
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 const fs = require('fs');
 const path = require('path');
 const { corpus } = require('./test_corpus.js');
@@ -26,7 +30,7 @@ async function runBenchmark() {
     console.log(`[Run ${i + 1}/10] Subject: ${subjectName} (${paragraphs.length} paragraphs in corpus)`);
 
     // Representative multi-paragraph block for the subject
-    const rawSubjectText = paragraphs.slice(0, 3).join(' ');
+    const rawSubjectText = paragraphs.slice(0, 3).join('\n\n');
 
     console.log('  1. Scanning baseline raw text against live Turnitin API...');
     let rawLive = null;
@@ -127,7 +131,7 @@ function generateReportMarkdown(results) {
 - **Target Detectors:** Turnitin (RoBERTa Sequence Classifier) & ZeroGPT (Sliding Window Perplexity) via Live API (\`https://www.turnitindetector.ai/bff/detect\`)
 - **Total Paragraphs Tested:** 150 paragraphs across 10 academic and scientific disciplines
 - **Engine Mode:** \`academic_turnitin\` with Deep GitHub Skill Integration (\`blader/humanizer\` 56k & \`academic-humanizer\` 2k)
-- **Date:** 2026-10-14
+- **Date:** 2026-10-15
 
 ## Benchmark Results Table
 

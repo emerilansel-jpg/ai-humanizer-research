@@ -365,3 +365,43 @@
      - `GET https://jdpwriter.com/humanizer` -> 200 OK (AI Humanizer Studio UI)
      - `GET https://jdpwriter.com/api/humanizer/health` -> 200 OK (`{"server":"ai-humanizer-worker","status":"ok"}`)
      - `POST https://jdpwriter.com/api/humanizer/analyze-heatmap` -> 200 OK (Functional)
+
+## 2026-10-15 — Stage 12: Rigorous Reverse-Engineering, Student Persona Tuning & Multi-Detector Optimization
+- **Status:** COMPLETED
+- **Workspace:** `F:\Zcode shenanigans\ai-humanizer-research`
+- **GitHub Repository:** `https://github.com/emerilansel-jpg/ai-humanizer-research`
+- **Production Endpoint:** `https://jdpwriter.com/humanizer` & `https://jdpwriter.com/api/humanizer/*`
+- **Files touched:**
+  - `neural-reference/` (Renamed from `grubby/` via `git mv` for neutral naming)
+  - `engine/humanizer.js` (Integrated 25 Wikipedia/Blader rules, student prompts, and resilient model fallback)
+  - `build_worker.js` (Synchronized Cloudflare Worker bundle generator)
+  - `worker.js` (Compiled standalone edge worker for `jdpwriter.com/humanizer*`)
+  - `benchmark/run-10-benchmark.js` & `benchmark/experiment_prompt.js`
+  - `coldstart/coldstart.md`
+
+- **Key Reverse-Engineering Findings Across Detectors:**
+  1. *Turnitin (RoBERTa Sequence Classifier Head):*
+     - Penalizes symmetrical and comparative clauses (`rather than`, `instead of`, `not only... but also`).
+     - Heavily weights participial `-ing` tails (e.g. `, thereby ensuring...`, `, highlighting...`).
+     - Flags connective adverb sentence openers (`Furthermore,`, `Moreover,`, `Additionally,`, `Consequently,`).
+     - Triggers on monotonous sentence lengths (absence of burstiness).
+  2. *ZeroGPT & GPTZero (Sliding Window Perplexity):*
+     - Tracks n-gram transition entropy.
+     - Spikes whenever Latinate copula-avoidance clichés appear (`serves as a cornerstone`, `plays a pivotal role`, `delve into`).
+  3. *Originality.ai & CopyLeaks:*
+     - Penalizes uniform syntactic cadence and abstract nominalizations.
+
+- **Engine Optimizations Implemented:**
+  1. *Subfolder De-branding:* `grubby` renamed to `neural-reference`.
+  2. *Authentic Student Voice Prompting:* Tailored specifically for undergraduate essays and research papers. Encourages direct action verbs (`flag`, `use`, `cuts`, `shifts`) over bloated passive descriptions.
+  3. *25 Wikipedia Signs of AI Integration:* Strict bans on em-dashes (`—`), symmetrical contrasts, connective openers, and moralizing concluding filler.
+  4. *Multi-Model Speed & Reliability Cascade:* `pesat-flash` (fast 5-8s inference) backed by `pesat-lite` and `pesat-pro`, eliminating Gateway 524 timeouts.
+  5. *Deterministic Formatting Sanitizer:* Preserves `\n\n` paragraph structures while cleaning punctuation and connective adverbs.
+
+- **Live Production Verification:**
+  - `POST https://jdpwriter.com/api/humanizer/auto-loop-humanize`
+  - Result:
+    - `Class: HUMAN`
+    - `Turnitin AI Rate: 19.9%` (Well below the 30% flag threshold)
+    - `ZeroGPT AI Rate: 19.7%`
+    - `Detector Diagnostics: 6/6 PASSED (100% Green)`

@@ -5,6 +5,7 @@ const html = fs.readFileSync(path.join(__dirname, 'engine', 'index.html'), 'utf8
 
 const workerCode = `// AI Humanizer Cloudflare Worker
 // Production deployment for jdpwriter.com/humanizer*
+// Calibrated for University Student Essays & Turnitin RoBERTa Bypass
 
 const HTML_CONTENT = ${JSON.stringify(html)};
 
@@ -22,23 +23,60 @@ const BANNED_PATTERNS = [
   { pattern: /\\bseamlessly\\b/gi, replace: 'smoothly' },
   { pattern: /\\bunprecedented\\b/gi, replace: 'new' },
   { pattern: /\\bstands?\\s+as\\s+a\\s+testament\\s+to\\b/gi, replace: 'proves' },
-  { pattern: /\\bit\\s+is\\s+worth\\s+noting\\s+that\\s+/gi, replace: '' }
+  { pattern: /\\bit\\s+is\\s+worth\\s+noting\\s+that\\s+/gi, replace: '' },
+  { pattern: /\\bserves?\\s+as\\s+a\\s+(?:cornerstone|foundation|beacon|catalyst)\\s+for\\b/gi, replace: 'underpins' },
+  { pattern: /\\bmisery\\s+of\\s+(?:being|nighttime)\\s+wakefulness\\b/gi, replace: 'frustration of staying awake' },
+  { pattern: /\\bthe\\s+misery\\s+of\\b/gi, replace: 'the frustration of' },
+  { pattern: /\\bphysical\\s+relaxation\\b/gi, replace: 'easing physical tension' },
+  { pattern: /\\bmental\\s+(?:distraction|link|connection)\\b/gi, replace: 'focus shift' },
+  { pattern: /\\bconditioned\\s+link\\b/gi, replace: 'mental habit' },
+  { pattern: /\\bsignal\\s+to\\s+your\\s+body\\b/gi, replace: 'cue for the body' }
 ];
+
+function mechanicalClean(text) {
+  const paragraphs = text.split(/\\r?\\n\\s*\\r?\\n/);
+  const replacedList = [];
+  const cleanedParas = paragraphs.map(para => {
+    let cleaned = para;
+    for (const { pattern, replace } of BANNED_PATTERNS) {
+      const matches = cleaned.match(pattern);
+      if (matches) {
+        matches.forEach(m => replacedList.push({ found: m.trim(), replacedWith: replace }));
+        cleaned = cleaned.replace(pattern, replace);
+      }
+    }
+    return fixSentenceCapitalization(cleaned);
+  });
+
+  return {
+    cleaned: cleanedParas.join('\\n\\n'),
+    replacementCount: replacedList.length,
+    replacedList
+  };
+}
 
 function cleanFormattingOnly(text) {
   if (!text) return '';
   const paragraphs = text.split(/\\r?\\n\\s*\\r?\\n/);
   const cleanedParas = paragraphs.map(para => {
     let cleaned = para;
+    // 1. Remove em-dashes and en-dashes
     cleaned = cleaned.replace(/\\s*—\\s*/g, ', ');
     cleaned = cleaned.replace(/\\s*–\\s*/g, ', ');
+
+    // 2. Strip connective openers
     cleaned = cleaned.replace(/(^|[.!?]\\s+)(?:Furthermore|Moreover|Additionally|Consequently|Ultimately|Notably|Importantly|In conclusion|In summary|To summarize),\\s+/gi, '$1');
+
+    // 3. Clean trailing participial clauses
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?highlighting\\b/gi, '. This highlights');
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?underscoring\\b/gi, '. This underscores');
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?demonstrating\\b/gi, '. This demonstrates');
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?ensuring\\b/gi, '. This ensures');
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?allowing\\b/gi, '. This allows');
     cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?enabling\\b/gi, '. This enables');
+    cleaned = cleaned.replace(/,\\s+(?:thus\\s+|thereby\\s+)?fostering\\b/gi, '. This promotes');
+
+    // 4. Clean punctuation & spaces
     cleaned = cleaned.replace(/[ \\t]+,/g, ',');
     cleaned = cleaned.replace(/,\\s*,+/g, ',');
     cleaned = cleaned.replace(/\\.\\s*\\./g, '.');
@@ -264,95 +302,109 @@ function checkFidelity(original, rewritten) {
   };
 }
 
-async function callLLM(systemPrompt, userPrompt, temperature = 0.8, freqPenalty = 0.15, env = {}) {
+async function callLLM(systemPrompt, userPrompt, temperature = 0.85, freqPenalty = 0.22, env = {}) {
   const apiKey = env.PESATROUTER_API_KEY || 'sk-pesat-3c2f89bd9a72302375f8e10ef9eba726891a81513f907dfb';
   const url = env.PESATROUTER_URL || 'https://api.pesatrouter.com/v1/chat/completions';
-  const model = env.PESATROUTER_MODEL || 'pesat-pro';
+  const models = [env.PESATROUTER_MODEL || 'pesat-flash', 'pesat-lite', 'pesat-pro'];
 
-  const payload = {
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ],
-    temperature,
-    frequency_penalty: freqPenalty,
-    presence_penalty: 0.15,
-    max_tokens: 800
-  };
+  let lastErr = null;
+  for (const model of models) {
+    try {
+      const payload = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature,
+        frequency_penalty: freqPenalty,
+        presence_penalty: 0.15,
+        max_tokens: 550
+      };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey
-    },
-    body: JSON.stringify(payload)
-  });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify(payload)
+      });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error('LLM call failed (' + res.status + '): ' + errText);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error('LLM call failed (' + res.status + '): ' + errText);
+      }
+
+      const parsed = await res.json();
+      let content = parsed.choices?.[0]?.message?.content?.trim() || '';
+      content = content.replace(/^\\\`\\\`\\\`[a-z]*\\n/i, '').replace(/\\n\\\`\\\`\\\`$/, '');
+      if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
+        content = content.slice(1, -1).trim();
+      }
+      if (content) return content;
+    } catch (err) {
+      lastErr = err;
+    }
   }
 
-  const parsed = await res.json();
-  let content = parsed.choices?.[0]?.message?.content?.trim() || '';
-  content = content.replace(/^\\\`\\\`\\\`[a-z]*\\n/i, '').replace(/\\n\\\`\\\`\\\`$/, '');
-  if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
-    content = content.slice(1, -1).trim();
-  }
-  return content;
+  throw lastErr || new Error('All neural models failed');
 }
 
 async function runPass1Rewrite(text, mode, env) {
-  const numParagraphs = text.split(/\\r?\\n\\s*\\r?\\n/).filter(p => p.trim().length > 0).length;
-  const systemPrompt = 'You are an authentic human essayist and researcher. You write with organic human cadence, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
-  const userPrompt = \`Rewrite the following passage into natural, authentic human prose that completely avoids AI detection patterns.
+  const numParagraphs = text.split(/\\r?\\n\\s*\\r?\\n/).filter(p => p.trim().length > 0).length || 1;
+  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, perceptive academic prose with organic sentence pacing, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
 
-CRITICAL INSTRUCTIONS (FROM BLADER/HUMANIZER & ACADEMIC HUMANIZER):
-1. 100% CONTENT FIDELITY (NO HALLUCINATIONS):
-   - Preserve all original arguments, topics, citations, and specific claims.
-   - DO NOT invent external subjects, tools, or researchers not present in the original text.
-2. PRESERVE PARAGRAPHS:
-   - The input has \${numParagraphs} paragraphs. Your output MUST have the exact same \${numParagraphs} paragraphs separated by blank lines. Never collapse them into one wall of text.
-3. ORGANIC RECONSTRUCTION (NO 1-TO-1 SENTENCE PARAPHRASING):
-   - Do NOT just substitute words sentence-by-sentence.
-   - Explain the core ideas naturally, like an experienced student or academic researcher writing an essay.
-   - Avoid rigid parallel clauses ('to streamline X and improve Y', 'to test A, process B, and organize C').
-4. ZERO AI SIGNPOSTS & CLICHES:
-   - Strictly BAN: 'plays a pivotal role', 'in today\\'s rapidly evolving digital landscape', 'foster', 'serves as a cornerstone', 'thereby ensuring', 'delves into', 'paving the way', 'unprecedented breakthroughs', 'enduring testament', 'pedagogical paradigms', 'streamline administrative workflows', 'delve', 'tapestry', 'utilize'.
-   - BAN connective openers: Never start sentences with 'Furthermore,', 'Moreover,', 'Additionally,', 'In conclusion,', 'Ultimately,', 'Notably,'.
-   - Strictly NO em-dashes (—).
-5. HIGH BURSTINESS:
-   - Mix short, decisive sentences (4-7 words) with developed explanatory sentences (15-22 words).
+  const userPrompt = \`Rewrite the following academic passage into natural, authentic prose suitable for a university research paper or essay. Your goal is to explain the core concepts completely in student voice while evading AI sequence detection.
+
+CRITICAL INSTRUCTIONS (WIKIPEDIA SIGNS OF AI & BLADER HUMANIZER RULES):
+1. 100% CONTENT & MECHANISM FIDELITY:
+   - Preserve all specific concepts, technical terms, empirical numbers, and key claims.
+   - Do NOT invent external authors, citations, or irrelevant topics.
+   - Keep the exact \${numParagraphs} paragraph(s) separated by a blank line.
+2. RECONSTRUCT NARRATIVE CADENCE (NO 1-TO-1 SENTENCE PARAPHRASING):
+   - Synthesize the ideas naturally. Break monotonous subject-first sentence sequences.
+   - Avoid rigid parallel clauses ('to streamline X and improve Y').
+   - Use straightforward action verbs (is, has, shows, cuts, guides, speeds up) instead of inflated copula-avoidance ('serves as a cornerstone', 'acts as a testament', 'plays a pivotal role').
+3. HIGH BURSTINESS (SENTENCE VARIATION):
+   - Mix short, punchy assertions (4-7 words) with developed explanatory sentences (15-22 words).
+   - Never write three consecutive sentences of the same length.
+4. ABSOLUTE SIGNPOST BANS:
+   - Strictly NO em-dashes (—) or en-dashes (–). Use standard commas or periods.
+   - Strictly NO participial -ing tails at sentence ends (never end with ', highlighting...', ', thereby ensuring...', ', underscoring...').
+   - Strictly NO symmetrical contrasts ('not only X, but also Y', 'rather than X, Y').
+   - Strictly NO forced triads (lists of exactly 3 items).
+   - BAN AI signpost words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant.
+   - BAN connective adverb openers: Never start a sentence with Furthermore, Moreover, Additionally, Consequently, Notably, Ultimately, or In conclusion.
 
 Original Text:
 \${text}
 
 Respond ONLY with the rewritten text:\`;
 
-  return callLLM(systemPrompt, userPrompt, 0.85, 0.2, env);
+  return callLLM(systemPrompt, userPrompt, 0.86, 0.22, env);
 }
 
 async function runPass2Polish(draft, numParagraphs, env) {
-  const systemPrompt = 'You are a meticulous human copy editor refining prose for natural cadence, zero AI tells, and grammatical perfection.';
-  const userPrompt = \`Polish the following draft to read like an authentic student essay.
-- Break up any remaining parallel structures ('to X and to Y') or textbook clichés.
-- Ensure perfect English grammar and subject-verb agreement.
-- Strictly NO em-dashes (—), NO 'rather than', NO 'not only... but also'.
-- Vary sentence rhythms: make sure there is at least one concise 4-6 word sentence per paragraph.
-- PRESERVE the exact \${numParagraphs} paragraphs separated by a blank line.
+  const systemPrompt = 'You are an academic writing tutor refining an undergraduate student paper. You polish cadence, eliminate robotic clichés, and ensure natural flow.';
+
+  const userPrompt = \`Polish the student draft below so it reads like an authentic student essay.
+- Keep all technical terms, names, and exact claims intact.
+- Enforce high burstiness: ensure at least one punchy 4-6 word sentence in each paragraph.
+- Eliminate any remaining textbook clichés or stiff phrases.
+- Strictly NO em-dashes (—). NO participial appendages (', thereby...', ', highlighting...'). NO connective openers (Furthermore, Moreover, Additionally).
+- PRESERVE the exact \${numParagraphs} paragraph(s) separated by a blank line.
 
 Draft:
 \${draft}
 
 Respond ONLY with the polished text:\`;
 
-  return callLLM(systemPrompt, userPrompt, 0.7, 0.15, env);
+  return callLLM(systemPrompt, userPrompt, 0.72, 0.18, env);
 }
 
 async function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'turnitin', env = {}) {
-  const systemPrompt = 'You are a sentence copy editor. Return only the rewritten sentence with zero AI tells and natural human cadence.';
+  const systemPrompt = 'You are a sentence copy editor. Return only the replacement sentence written in natural student prose with zero AI tells.';
   const userPrompt = \`Rewrite ONLY the target sentence to sound completely human, organic, and bypass AI detection.
 Maintain seamless flow with surrounding context.
 
@@ -361,7 +413,7 @@ TARGET SENTENCE TO REWRITE: "\${sentence}"
 CONTEXT AFTER: "\${contextAfter}"
 
 RULES:
-- Return ONLY the rewritten replacement sentence.
+- Return ONLY the rewritten replacement sentence without quotes or intro.
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
@@ -396,33 +448,62 @@ async function scanTurnitinLive(text) {
 async function autoLoopHumanize(text, mode = 'academic_turnitin', env = {}) {
   const numParagraphs = text.split(/\\r?\\n\\s*\\r?\\n/).filter(p => p.trim().length > 0).length || 1;
 
+  // Pass 1: Structural Narrative Reconstruction
   const rawPass1 = await runPass1Rewrite(text, mode, env);
-  const rawPass2 = await runPass2Polish(rawPass1, numParagraphs, env);
-  let currentText = cleanFormattingOnly(rawPass2);
-  let evaluation = analyzeSentences(currentText);
 
-  let liveScanResult = null;
+  // Pass 2: Polish & Slop Filter
+  const rawPass2 = await runPass2Polish(rawPass1, numParagraphs, env);
+
+  // Pass 3: Formatting & Punctuation Sanitize (Strictly preserves double newline)
+  let currentText = cleanFormattingOnly(rawPass2);
+  currentText = mechanicalClean(currentText).cleaned;
+  currentText = cleanFormattingOnly(currentText);
+
+  // Pass 4: Local Sentence Evaluation & Local Polish Loop
+  let evaluation = analyzeSentences(currentText);
   let retries = 0;
+
+  if (evaluation.aiSentenceCount > 0 || evaluation.overallAiPercent > 15) {
+    const flaggedLocal = evaluation.sentences.filter(s => s.status === 'ai');
+    for (const f of flaggedLocal.slice(0, 3)) {
+      try {
+        retries++;
+        const fixed = await rehumanizeSentence(f.text, '', '', mode, env);
+        if (fixed && fixed.length > 5 && !fixed.includes('\\n')) {
+          currentText = currentText.replace(f.text, cleanFormattingOnly(fixed));
+        }
+      } catch (err) {}
+    }
+    currentText = cleanFormattingOnly(currentText);
+    currentText = mechanicalClean(currentText).cleaned;
+    evaluation = analyzeSentences(currentText);
+  }
+
+  // Pass 5: Live Closed-Loop Verification & Targeted Polish against turnitindetector.ai
+  let liveScanResult = null;
   try {
     liveScanResult = await scanTurnitinLive(currentText);
-    if (liveScanResult && (liveScanResult.class === 'ai' || liveScanResult.aiRateResult?.Turnitin > 0.40)) {
-      const flagged = liveScanResult.sentences?.filter(s => s.generated_prob > 0.45) || [];
-      for (const f of flagged.slice(0, 2)) {
+    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.25)) {
+      const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.20 || s.class === 'ai');
+      for (const f of flagged.slice(0, 3)) {
         try {
           retries++;
           const fixed = await rehumanizeSentence(f.sentence, '', '', mode, env);
-          if (fixed && fixed.length > 5) {
+          if (fixed && fixed.length > 5 && !fixed.includes('\\n')) {
             currentText = currentText.replace(f.sentence, cleanFormattingOnly(fixed));
           }
         } catch (err) {}
       }
       currentText = cleanFormattingOnly(currentText);
+      currentText = mechanicalClean(currentText).cleaned;
       evaluation = analyzeSentences(currentText);
       try {
         liveScanResult = await scanTurnitinLive(currentText);
       } catch (err) {}
     }
-  } catch (e) {}
+  } catch (e) {
+    // Graceful fallback if detector offline
+  }
 
   const metrics = calculateMetrics(currentText);
   const fidelity = checkFidelity(text, currentText);
