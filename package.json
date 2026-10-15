@@ -1,0 +1,19 @@
+{
+  "name": "ai-humanizer-research",
+  "version": "1.0.0",
+  "description": "Production Neural AI Humanizer Studio & Benchmark Engine",
+  "main": "engine/server.js",
+  "scripts": {
+    "start": "node engine/server.js",
+    "test": "node engine/test.js",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "ai-humanizer",
+    "turnitin-bypass",
+    "roberta-heuristics",
+    "neural-rewriter"
+  ],
+  "author": "emerilansel",
+  "license": "MIT"
+}
