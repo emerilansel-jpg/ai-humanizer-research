@@ -217,6 +217,7 @@
   </div>
 
   <script>
+    var API_PREFIX = (window.location.pathname.indexOf('/humanizer') !== -1) ? '/api/humanizer' : '/api';
     var currentEvaluation = null;
     var selectedSentence = null;
     var activeTab = 'clean';
@@ -338,7 +339,7 @@
 
       document.getElementById('scanStatus').textContent = 'Scanning Original Input...';
       try {
-        var res = await fetch('/api/analyze-heatmap', {
+        var res = await fetch(API_PREFIX + '/analyze-heatmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: text })
@@ -364,7 +365,7 @@
       document.getElementById('scanStatus').textContent = 'Iterative Multi-Pass Humanizing...';
 
       try {
-        var res = await fetch('/api/auto-loop-humanize', {
+        var res = await fetch(API_PREFIX + '/auto-loop-humanize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: text, mode: mode })
@@ -444,7 +445,7 @@
       document.getElementById('scanStatus').textContent = 'Querying turnitindetector.ai live API...';
 
       try {
-        var res = await fetch('/api/live-scan-turnitin', {
+        var res = await fetch(API_PREFIX + '/live-scan-turnitin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: textToScan })
@@ -474,7 +475,7 @@
         var outBox = document.getElementById('outputText');
         var fullText = outBox.value;
 
-        var res = await fetch('/api/rehumanize-sentence', {
+        var res = await fetch(API_PREFIX + '/rehumanize-sentence', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -490,7 +491,7 @@
         outBox.value = fullText;
         updateWordCounts();
 
-        var scanRes = await fetch('/api/analyze-heatmap', {
+        var scanRes = await fetch(API_PREFIX + '/analyze-heatmap', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: fullText })

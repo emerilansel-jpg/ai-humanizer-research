@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
-  if ((req.method === 'GET' || req.method === 'HEAD') && req.url === '/') {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (req.url === '/' || req.url === '/humanizer' || req.url === '/humanizer/')) {
     try {
       const htmlContent = fs.readFileSync(HTML_PATH, 'utf8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -38,7 +38,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (req.method === 'POST' && req.url === '/api/analyze-heatmap') {
+  if (req.method === 'POST' && (req.url === '/api/analyze-heatmap' || req.url === '/api/humanizer/analyze-heatmap')) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -55,7 +55,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/auto-loop-humanize') {
+  if (req.method === 'POST' && (req.url === '/api/auto-loop-humanize' || req.url === '/api/humanizer/auto-loop-humanize')) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -72,7 +72,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/live-scan-turnitin') {
+  if (req.method === 'POST' && (req.url === '/api/live-scan-turnitin' || req.url === '/api/humanizer/live-scan-turnitin')) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/rehumanize-sentence') {
+  if (req.method === 'POST' && (req.url === '/api/rehumanize-sentence' || req.url === '/api/humanizer/rehumanize-sentence')) {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
