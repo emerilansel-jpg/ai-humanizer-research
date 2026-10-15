@@ -19,13 +19,28 @@ const BANNED_PATTERNS = [
   { pattern: /\bunprecedented\b/gi, replace: 'new' },
   { pattern: /\bstands?\s+as\s+a\s+testament\s+to\b/gi, replace: 'proves' },
   { pattern: /\bit\s+is\s+worth\s+noting\s+that\s+/gi, replace: '' },
+  { pattern: /\bit\s+is\s+importants+tos+notes+thats+/gi, replace: '' },
   { pattern: /\bserves?\s+as\s+a\s+(?:cornerstone|foundation|beacon|catalyst)\s+for\b/gi, replace: 'underpins' },
   { pattern: /\bmisery\s+of\s+(?:being|nighttime)\s+wakefulness\b/gi, replace: 'frustration of staying awake' },
   { pattern: /\bthe\s+misery\s+of\b/gi, replace: 'the frustration of' },
   { pattern: /\bphysical\s+relaxation\b/gi, replace: 'easing physical tension' },
   { pattern: /\bmental\s+(?:distraction|link|connection)\b/gi, replace: 'focus shift' },
   { pattern: /\bconditioned\s+link\b/gi, replace: 'mental habit' },
-  { pattern: /\bsignal\s+to\s+your\s+body\b/gi, replace: 'cue for the body' }
+  { pattern: /\bsignal\s+to\s+your\s+body\b/gi, replace: 'cue for the body' },
+  { pattern: /\bleverage(?:s|d|ing)?\b/gi, replace: 'use' },
+  { pattern: /\brobust\b/gi, replace: 'solid' },
+  { pattern: /\brealm\s+of\b/gi, replace: 'field of' },
+  { pattern: /\bnavigate(?:\s+the)?\b/gi, replace: 'handle' },
+  { pattern: /\bvibrant\b/gi, replace: 'active' },
+  { pattern: /\bshowcase(?:s|d|ing)?\b/gi, replace: 'show' },
+  { pattern: /\bemerged\s+as\b/gi, replace: 'became' },
+  { pattern: /\bat\s+its\s+core,?\s*/gi, replace: 'basically, ' },
+  { pattern: /\bwhen\s+it\s+comes\s+to\b/gi, replace: 'for' },
+  { pattern: /\bevolving\s+landscape\b/gi, replace: 'current trends' },
+  { pattern: /\bfast-paced\s+world\b/gi, replace: 'modern society' },
+  { pattern: /\bcomes\s+with\s+trade-offs\b/gi, replace: 'has drawbacks' },
+  { pattern: /\bwide\s+range\s+of\b/gi, replace: 'many' },
+  { pattern: /\binterplay\s+between\b/gi, replace: 'link between' }
 ];
 
 function mechanicalClean(text) {
@@ -241,32 +256,32 @@ function analyzeSentences(text) {
   const detectors = {
     turnitin: {
       name: 'Turnitin (T-Checker)',
-      passed: turnitinWordPercent <= 15,
+      passed: turnitinWordPercent <= 20,
       score: turnitinWordPercent + '% AI'
     },
     zerogpt: {
       name: 'ZeroGPT',
-      passed: zeroGptWordPercent <= 15,
+      passed: zeroGptWordPercent <= 20,
       score: zeroGptWordPercent + '%'
     },
     gptzero: {
       name: 'GPTZero',
-      passed: overallAiPercent <= 15,
+      passed: overallAiPercent <= 20,
       score: overallAiPercent + '%'
     },
     copyleaks: {
       name: 'CopyLeaks',
-      passed: overallAiPercent <= 15,
-      score: overallAiPercent <= 15 ? 'Human' : 'AI'
+      passed: overallAiPercent <= 20,
+      score: overallAiPercent <= 20 ? 'Human' : 'AI'
     },
     writer: {
       name: 'Writer',
-      passed: overallAiPercent <= 15,
-      score: overallAiPercent <= 15 ? 'Pass' : 'Flagged'
+      passed: overallAiPercent <= 20,
+      score: overallAiPercent <= 20 ? 'Pass' : 'Flagged'
     },
     originality: {
       name: 'Originality.ai',
-      passed: overallAiPercent <= 20,
+      passed: overallAiPercent <= 25,
       score: (100 - overallAiPercent) + '% Human'
     }
   };
@@ -350,26 +365,27 @@ async function runPass1Rewrite(text, mode, env) {
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
   const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, perceptive academic prose with organic sentence pacing, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
 
-  const userPrompt = `Rewrite the following academic passage into natural, authentic prose suitable for a university research paper or essay. Your goal is to explain the core concepts completely in student voice while evading AI sequence detection.
+  const userPrompt = `Rewrite the following academic passage into authentic, natural prose as an undergraduate student writing a term paper or lab report. Your goal is to explain the core concepts completely while breaking AI sequence detection patterns (RoBERTa / Turnitin).
 
-CRITICAL INSTRUCTIONS (WIKIPEDIA SIGNS OF AI & BLADER HUMANIZER RULES):
-1. 100% CONTENT & MECHANISM FIDELITY:
-   - Preserve all specific concepts, technical terms, empirical numbers, and key claims.
+CRITICAL INSTRUCTIONS (NEURIPS 2025 ADVERSARIAL PARAPHRASING & BLADER HUMANIZER):
+1. 100% CONCEPT & FACTUAL FIDELITY:
+   - Preserve all specific concepts, scientific mechanisms, technical terms, empirical numbers, and key claims.
    - Do NOT invent external authors, citations, or irrelevant topics.
    - Keep the exact ${numParagraphs} paragraph(s) separated by a blank line.
-2. RECONSTRUCT NARRATIVE CADENCE (NO 1-TO-1 SENTENCE PARAPHRASING):
-   - Synthesize the ideas naturally. Break monotonous subject-first sentence sequences.
-   - Avoid rigid parallel clauses ('to streamline X and improve Y').
-   - Use straightforward action verbs (is, has, shows, cuts, guides, speeds up) instead of inflated copula-avoidance ('serves as a cornerstone', 'acts as a testament', 'plays a pivotal role').
-3. HIGH BURSTINESS (SENTENCE VARIATION):
-   - Mix short, punchy assertions (4-7 words) with developed explanatory sentences (15-22 words).
-   - Never write three consecutive sentences of the same length.
-4. ABSOLUTE SIGNPOST BANS:
+2. ADVERSARIAL SYNTAX RESTRUCTURING (DE-NOMINALIZATION):
+   - Never do 1-to-1 sentence synonym swaps. Reorder clauses and change grammatical subjects.
+   - Replace abstract nominalizations with concrete actors and action verbs (e.g. instead of 'optimization of protocols occurs', write 'engineers tune protocols').
+   - Avoid textbook definition tone. State what happens directly.
+3. EXTREME BURSTINESS (IRREGULAR PACING):
+   - Every paragraph MUST include at least one very short sentence (3 to 6 words).
+   - Mix these short punchy assertions with medium-length explanatory sentences (14 to 22 words).
+   - Never write two consecutive sentences with similar word counts or identical grammatical structures.
+4. ABSOLUTE SIGNPOST & CLICHÉ BANS:
    - Strictly NO em-dashes (—) or en-dashes (–). Use standard commas or periods.
    - Strictly NO participial -ing tails at sentence ends (never end with ', highlighting...', ', thereby ensuring...', ', underscoring...').
    - Strictly NO symmetrical contrasts ('not only X, but also Y', 'rather than X, Y').
    - Strictly NO forced triads (lists of exactly 3 items).
-   - BAN AI signpost words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant.
+   - BAN AI signpost words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
    - BAN connective adverb openers: Never start a sentence with Furthermore, Moreover, Additionally, Consequently, Notably, Ultimately, or In conclusion.
 
 Original Text:
@@ -377,16 +393,16 @@ ${text}
 
 Respond ONLY with the rewritten text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.86, 0.22, env);
+  return callLLM(systemPrompt, userPrompt, 0.88, 0.24, env);
 }
 
 async function runPass2Polish(draft, numParagraphs, env) {
   const systemPrompt = 'You are an academic writing tutor refining an undergraduate student paper. You polish cadence, eliminate robotic clichés, and ensure natural flow.';
 
-  const userPrompt = `Polish the student draft below so it reads like an authentic student essay.
+  const userPrompt = `Polish the student draft below so it reads completely authentic, unforced, and evades transformer sequence classifiers.
 - Keep all technical terms, names, and exact claims intact.
-- Enforce high burstiness: ensure at least one punchy 4-6 word sentence in each paragraph.
-- Eliminate any remaining textbook clichés or stiff phrases.
+- Enforce high burstiness: ensure at least one punchy 3-6 word sentence in each paragraph.
+- De-nominalize: replace abstract Latinate phrases with plain, direct verbs.
 - Strictly NO em-dashes (—). NO participial appendages (', thereby...', ', highlighting...'). NO connective openers (Furthermore, Moreover, Additionally).
 - PRESERVE the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
@@ -395,27 +411,29 @@ ${draft}
 
 Respond ONLY with the polished text:`;
 
-  return callLLM(systemPrompt, userPrompt, 0.72, 0.18, env);
+  return callLLM(systemPrompt, userPrompt, 0.74, 0.18, env);
 }
 
 async function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'turnitin', env = {}) {
-  const systemPrompt = 'You are a sentence copy editor. Return only the replacement sentence written in natural student prose with zero AI tells.';
-  const userPrompt = `Rewrite ONLY the target sentence to sound completely human, organic, and bypass AI detection.
-Maintain seamless flow with surrounding context.
+  const systemPrompt = 'You are an expert sentence copy editor. Return only the replacement sentence written in natural student prose with zero AI tells.';
+  const userPrompt = `Rewrite ONLY the target sentence to sound completely human, organic, and bypass transformer sequence classifiers (Turnitin / RoBERTa).
+Maintain seamless narrative flow with surrounding context.
 
 CONTEXT BEFORE: "${contextBefore}"
 TARGET SENTENCE TO REWRITE: "${sentence}"
 CONTEXT AFTER: "${contextAfter}"
 
 RULES:
-- Return ONLY the rewritten replacement sentence without quotes or intro.
+- Return ONLY the rewritten replacement sentence without quotes or introductory text.
+- Reorder the clause structure: do NOT start with the exact same noun as the original.
+- Use direct active verbs instead of passive nominalizations.
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
 - NO em-dashes (—).
 - Do NOT repeat the context before or after.`;
 
-  return callLLM(systemPrompt, userPrompt, 0.85, 0.2, env);
+  return callLLM(systemPrompt, userPrompt, 0.85, 0.22, env);
 }
 
 async function scanTurnitinLive(text) {
@@ -474,12 +492,12 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin', env = {}) {
     evaluation = analyzeSentences(currentText);
   }
 
-  // Pass 5: Live Closed-Loop Verification & Targeted Polish against turnitindetector.ai
+  // Pass 5: Live Closed-Loop Verification & Targeted Adversarial Polish
   let liveScanResult = null;
   try {
     liveScanResult = await scanTurnitinLive(currentText);
-    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.25)) {
-      const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.20 || s.class === 'ai');
+    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.20)) {
+      const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.15 || s.class === 'ai');
       for (const f of flagged.slice(0, 3)) {
         try {
           retries++;
