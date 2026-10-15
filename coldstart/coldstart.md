@@ -331,3 +331,37 @@
      - `POST /api/live-scan-turnitin` -> HTTP 200 (real-time `turnitindetector.ai` integration functional)
   5. *All Tests Passing:* Verified 6/6 test suites in `engine/test.js`.
   6. *Studio Status:* Live and fully functional at `http://localhost:3000`.
+
+## 2026-10-15 — Stage 11: GitHub Remote Push & Cloudflare Isolated Route Deployment on jdpwriter.com/humanizer
+- **Status:** COMPLETED
+- **Workspace:** `F:\Zcode shenanigans\ai-humanizer-research`
+- **GitHub Repository:** `https://github.com/emerilansel-jpg/ai-humanizer-research`
+- **Live Branch URL:** `https://jdpwriter.com/humanizer`
+- **Files touched:**
+  - `.gitignore`
+  - `README.md`
+  - `package.json`
+  - `build_worker.js`
+  - `worker.js`
+  - `wrangler.toml`
+  - `engine/index.html` (Added dynamic `API_PREFIX` for dual local/remote support)
+  - `engine/server.js` (Added support for `/humanizer` and `/api/humanizer` paths)
+  - `coldstart/coldstart.md`
+
+- **Architecture & Isolation Guarantee:**
+  1. *Main Site Safety (jdpwriter.com/):*
+     - The primary site `https://jdpwriter.com/` serves `JDP Pipeline Admin` via Worker `jdp-pipeline-admin` under route `jdpwriter.com/*`.
+     - It was **100% UNTOUCHED** and remains completely intact.
+  2. *Dedicated Branch Route Binding:*
+     - App is deployed as dedicated Cloudflare Worker `ai-humanizer` (Version: `3a2cb4db-0a15-4d20-ac48-5d01cf0de6a3`).
+     - Specific route bindings:
+       - `jdpwriter.com/humanizer*` (UI Studio)
+       - `jdpwriter.com/api/humanizer*` (APIs)
+       - `www.jdpwriter.com/humanizer*`
+       - `www.jdpwriter.com/api/humanizer*`
+     - Matches the exact multi-tenant route model of `jdpwriter.com/research*` (Social Research Tool) and `jdpwriter.com/ne*` (Neil Emmet Project).
+  3. *Endpoints Verified Live:*
+     - `GET https://jdpwriter.com/` -> 200 OK (JDP Pipeline Admin intact)
+     - `GET https://jdpwriter.com/humanizer` -> 200 OK (AI Humanizer Studio UI)
+     - `GET https://jdpwriter.com/api/humanizer/health` -> 200 OK (`{"server":"ai-humanizer-worker","status":"ok"}`)
+     - `POST https://jdpwriter.com/api/humanizer/analyze-heatmap` -> 200 OK (Functional)
