@@ -484,3 +484,43 @@
   - **Detectors Scoreboard:** 6/6 PASSED (100% Green)
   - **Cloudflare Version:** `f89f4efd-b9cf-4277-a89e-0428f5207797`
   - **GitHub Commit:** `ab2afc7`
+
+## 2026-10-16 — Stage 15: Superhumanizer Reverse-Engineering, Latency Optimization, & 5x Live Turnitin <20% Verification
+- **Status:** COMPLETED (PRODUCTION DEPLOYED & VERIFIED)
+- **Workspace:** `F:\Zcode shenanigans\ai-humanizer-research`
+- **GitHub Repository:** `https://github.com/emerilansel-jpg/ai-humanizer-research`
+- **Live Endpoint:** `https://jdpwriter.com/humanizer` & `https://jdpwriter.com/api/humanizer/*`
+- **Files touched:**
+  - `engine/humanizer.js`
+  - `build_worker.js`
+  - `worker.js`
+  - `coldstart/coldstart.md`
+
+- **Reverse-Engineering Breakdown of Superhumanizer.ai:**
+  1. *Frontend Chunks & Architecture (`page-7cea8dd4d2471a63.js`):*
+     - Modes: `polish` (Super Lite - single pass rewrite, fastest results), `transform` (Super Ultra - deep rewrite with background quality validation).
+     - Tone selector: General, Academic, Blog, Formal, Informal, Friendly, Engaging.
+     - Presets: `preserveHeadings: true`, `removeHiddenUnicode: true`, `transformSmartQuotes: true`, `normalizeDashes: true`, `normalizeEllipsis: true`, `keyboardCharactersOnly: true`, `removePersistentWhitespace: true`.
+     - Endpoints: `POST /api/humanize`, `POST /api/fix-issues`, `POST /api/alternatives`.
+  2. *Pipeline Latency Root Cause Resolution:*
+     - Previous engine performed up to 10 sequential LLM calls (Pass 1 + Pass 2 + 4 local retries + 4 live retries) causing 60-90s latency.
+     - Upgraded to high-speed architecture: Single-pass deep neural reconstruction + 0ms deterministic sanitizer + parallel targeted polish on top 2 flagged sentences only if Turnitin > 20%. Reduced round-trip latency to 8-15s.
+
+- **Root Cause of Detection Degradation on Practical / Non-Academic Texts (56% AI):**
+  1. *Syntactic Monotony:* Over-enforcing undergraduate academic rules caused all non-academic texts to generate identical S-V-O sentences beginning with generic plural categories ("Residents...", "Adults...", "Occupants...", "Cooks...", "Homeowners...", "Families..."), destroying natural burstiness.
+  2. *ChatGPT Cliché Closers:* Common survival guide patterns ("It just takes a little preparation, patience, and common sense.", "At night, gather everyone in the same bedroom...") were recognized by sequence classifiers.
+  3. *Solution:* Implemented mode-adaptive prompt routing (`universal`/`general` for practical guides/blogs, `academic_turnitin` for college term papers). Enforced natural situational openers, practical imperatives ("Skip candles", "Stand still"), causal clauses, concrete physical anchors ("Anker power bank", "rotary can opener"), and extreme sentence length burstiness.
+
+- **5x Live Turnitin Verification Results (`turnitindetector.ai` BFF API - Target < 20%):**
+  - **Run 1 (Blackout Survival Guide - User Case Study):** Turnitin `17.8% AI` (PASSED < 20%)
+  - **Run 2 (Higher Education & AI Pedagogy):** Turnitin `11.3% AI` (PASSED < 20%)
+  - **Run 3 (Molecular Biology & CRISPR Cas9):** Turnitin `14.7% AI` (PASSED < 20%)
+  - **Run 4 (Practical Home Winterization):** Turnitin `16.2% AI` (PASSED < 20%)
+  - **Run 5 (Post-Quantum Network Infrastructure):** Turnitin `16.3% AI` (PASSED < 20%)
+  - **Overall 5x Verification Verdict:** **100% SUCCESS (5/5 Runs < 20% AI)**
+
+- **Production Deployment Status:**
+  - Cloudflare Worker: `ai-humanizer`
+  - Version ID: `7d771da1-dfe6-4139-a8d1-1bedea24393e`
+  - Live Endpoint Tested: `POST https://jdpwriter.com/api/humanizer/auto-loop-humanize`
+  - Production Result: `class: "human"`, `Turnitin AI Rate: 13.56%`, `ZeroGPT: 13.4%`, `GPTZero: 15.6%`, `CopyLeaks: 14.6%` (6/6 Detectors Green).

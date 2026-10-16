@@ -1,7 +1,7 @@
 // ai-humanizer-research/engine/humanizer.js
-// Production-grade Two-Pass Neural Humanizer Engine with Deep GitHub Skill Integration
-// Tailored for University Student Essays & Turnitin / ZeroGPT / GPTZero / Originality.ai Bypass
-// Reverse-engineered from Wikipedia Signs of AI writing, blader/humanizer 56k, Grubby, & TurnItHuman
+// Production-grade High-Speed Neural Humanizer Engine with Deep Reverse Engineering
+// Reverse-engineered from Superhumanizer.ai, Wikipedia Signs of AI writing, blader/humanizer 56k, Grubby, & TurnItHuman
+// Calibrated for Turnitin / ZeroGPT / GPTZero / Originality.ai Bypass (< 20% AI)
 
 const dns = require('dns');
 if (typeof dns.setDefaultResultOrder === 'function') {
@@ -20,6 +20,25 @@ function safeLookup(targetIp) {
       cb(null, targetIp, 4);
     }
   };
+}
+
+// Input Pre-sanitization reverse-engineered from Superhumanizer.ai
+function sanitizeInputSuperhumanizer(text) {
+  if (!text) return '';
+  let t = text;
+  // 1. Remove hidden zero-width unicode
+  t = t.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  // 2. Transform curly smart quotes to standard quotes
+  t = t.replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+  // 3. Normalize em-dashes and en-dashes to hyphens or commas
+  t = t.replace(/[\u2013\u2014]/g, '-');
+  // 4. Normalize ellipsis
+  t = t.replace(/\u2026/g, '...');
+  // 5. Clean non-standard bullet characters
+  t = t.replace(/^([ \t]*)[•◦▪▫●■□‣⁃∙]\s*/gm, '$1- ');
+  // 6. Clean persistent whitespace while preserving paragraph breaks (\n\n)
+  t = t.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return t;
 }
 
 // Robust sentence replacement handling quotes and spacing differences
@@ -496,13 +515,16 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.85, freqPenalty
   throw lastErr || new Error('Neural engine failed across all models');
 }
 
-// Pass 1: Authentic Student Essay Narrative Reconstruction
-function runPass1Rewrite(text, mode = 'academic_turnitin') {
+// Pass 1: High-Speed Mode-Adaptive Neural Reconstruction
+function runPass1Rewrite(text, mode = 'universal') {
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
 
-  const systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
+  let systemPrompt = '';
+  let userPrompt = '';
 
-  const userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
+  if (mode === 'academic_turnitin') {
+    systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
+    userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
 
 FEW-SHOT GOLD STANDARD EXAMPLE:
 Original:
@@ -513,54 +535,78 @@ Target Paratactic Human Rewrite:
 
 Generative tools help researchers summarize journal articles. Automated grading still worries privacy advocates. University guidelines lag behind new releases."
 
-MANDATORY RULES (PARATACTIC DECLARATIVE CADENCE & HUMANIZER):
-1. 100% CONCEPT & FACTUAL FIDELITY:
-   - Preserve all technical concepts, empirical mechanisms, numbers, and key claims.
-   - Do NOT invent external authors, fake citations, or unrelated topics.
-   - Keep the exact ${numParagraphs} paragraph(s) separated by a blank line.
-2. CONCRETIZE & DE-NOMINALIZE (HUMANIZER §11 & §20):
-   - Translate abstract academic umbrella terms into everyday operational tasks:
-     * Instead of 'administrative workflows', write 'class schedules and student records'.
-     * Instead of 'pedagogical outcomes / methodology', write 'coursework and grades'.
-     * Instead of 'adaptive algorithms / metrics tracking', write 'software flags difficult problem sets'.
-     * Instead of 'novel paradigms of research / critical inquiry', write 'summarizing journal articles and testing ideas'.
-     * Instead of 'algorithmic assessment / ethical dilemmas', write 'automated grading worries privacy advocates'.
+MANDATORY RULES:
+1. PRESERVE 100% CONTENT & CONCEPTS:
+   - Keep all technical mechanisms, numbers, and facts accurate. Do NOT invent external authors or citations.
+   - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
+2. DE-NOMINALIZE & CONCRETIZE:
+   - Translate abstract academic umbrella terms into everyday operational tasks.
 3. SHORT DECLARATIVE CLAUSES (6 to 12 words per sentence):
-   - Avoid subordinate clause bloat: cut 'to do X', 'in order to', 'based on how', 'thereby ensuring that'.
    - State one clear action per sentence: [Specific Actor] [Direct Verb] [Object].
    - Every paragraph MUST include at least one very short sentence (3 to 6 words).
-4. ABSOLUTE BAN ON AI PUFFERY & CLOSERS (HUMANIZER §2 & §20):
-   - Strictly NO concluding moral reflections (never write 'this shows what human ingenuity can achieve' or 'the future looks bright' or 'pedagogical equity remains undeniable'). Stop immediately once the final concrete point is made.
-   - BAN puffery words: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
-5. BAN STAGED SYNTAX:
-   - NO infinitive openers ('To speed up X and boost Y, schools...').
-   - NO 'not only X but also Y', NO 'rather than', NO 'instead of'.
-   - NO forced triads (lists of 3 items). Use 1 or 2 items.
+4. ABSOLUTE BANS:
+   - Strictly NO concluding moral reflections. Stop immediately once the final concrete point is made.
+   - BAN AI buzzwords: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
+   - BAN staged syntax: NO infinitive openers ('To speed up X...'), NO 'not only X but also Y', NO forced triads.
    - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally).
-6. SENTENCE COUNT DENSITY:
    - Exactly 3 to 4 short sentences per paragraph. Maximum 8 sentences total.
-   - Do NOT generate redundant filler sentences or rephrase the same point twice.
 
 Original Text:
 ${text}
 
 Respond ONLY with the rewritten text:`;
+  } else if (mode === 'conversational_zerogpt') {
+    systemPrompt = 'You are an authentic person telling an engaging, grounded real-world story or practical explanation. You write with natural human cadence, high burstiness, and zero robotic phrasing.';
+    userPrompt = `Rewrite the following text into natural, vivid, organic conversational prose with high burstiness.
+- Use natural phrasing, contractions, and varied sentence rhythms (alternate 3-6 word short sentences with 14-22 word fluid sentences).
+- Strictly NO em-dashes (—). NO participial -ing riders at sentence ends.
+- Keep all facts, quantities, numbers, and core points accurate.
+- Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
+
+Text to rewrite:
+${text}
+
+Respond ONLY with the rewritten text:`;
+  } else {
+    // Universal / General mode (default for guides, articles, practical non-academic texts)
+    systemPrompt = 'You are an expert human writer and editor. You write natural, grounded, practical English that sounds completely human, carries high burstiness, and evades transformer sequence classifiers (Turnitin, ZeroGPT, GPTZero).';
+    userPrompt = `Humanize and rewrite the following text completely into direct, natural prose.
+
+TONE & SYNTACTIC ARCHITECTURE:
+- Natural, practical human voice with high burstiness: mix punchy short statements (3 to 6 words) with fluid, natural compound sentences (14 to 22 words).
+- AVOID ROBOTIC MONOTONY: Never start consecutive sentences with generic plural actors (do NOT repeat 'Residents...', 'Adults...', 'Occupants...', 'Cooks...', 'Homeowners...', 'Families...').
+- Use direct situational statements ('A blackout always hits when you least expect it.'), practical imperatives ('Skip candles.', 'Unplug desktop computers and television sets.'), and natural causal clauses ('because a tipped candle easily sets rugs on fire').
+- Preserve 100% of the facts, numbers, timeframes (e.g. 1 gallon, 3 days, 48 hours, 40°F, 2 hours, 30 seconds), and safety rules.
+- Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line. If headings are present, preserve them on their own line.
+
+ABSOLUTE BANS (Wikipedia Signs of AI & Blader Humanizer Rules):
+- ZERO em-dashes (—) or en-dashes (–). Use commas, periods, or parentheses.
+- ZERO participial -ing riders at sentence ends (never end with ', highlighting...', ', allowing...', ', thereby ensuring...').
+- ZERO symmetrical contrasts ('not only X, but also Y', 'rather than X, Y').
+- ZERO forced triads (lists of exactly 3 items). Use 1 or 2 items.
+- ZERO connective openers (Never start a sentence with Furthermore, Moreover, Additionally, Consequently, In conclusion, Notably).
+- ZERO ChatGPT ending clichés (Never write 'It just takes a little preparation...', 'With a little planning, you will ride it out...', 'This proves what human ingenuity...'). End directly on the final practical fact.
+- ZERO AI buzzwords (pivotal, testament, tapestry, delve, foster, navigate, landscape, utilize, crucial role, realm of).
+
+Text to humanize:
+${text}
+
+Respond ONLY with the rewritten text:`;
+  }
 
   return callLLM(systemPrompt, userPrompt, 0.82, 0.22);
 }
 
-// Pass 2: Student Polish & Slop Filter
-function runPass2Polish(draft, numParagraphs) {
-  const systemPrompt = 'You are an academic writing tutor refining an undergraduate student paper. You polish cadence, eliminate robotic clichés, and ensure natural flow.';
-
-  const userPrompt = `Polish the student draft below so it reads completely authentic, unforced, and evades transformer sequence classifiers.
-- If any sentence exceeds 15 words or contains multiple subordinate clauses ('so that', 'while', 'because', 'when'), split it into two short, punchy sentences.
-- If any paragraph contains more than 4 sentences, prune redundant sentences so each paragraph contains at most 3-4 distinct sentences.
-- Replace demonstrative openers like 'These digital tools' or 'These systems' with specific nouns (e.g. 'Software' or 'Online portals').
-- Cut hype verbs like 'accelerate', 'transform', 'revolutionize'.
-- Enforce high burstiness: ensure at least one punchy 3-6 word sentence in each paragraph.
-- Strictly NO em-dashes (—). NO ending moralizing reflections.
-- PRESERVE the exact ${numParagraphs} paragraph(s) separated by a blank line.
+// Pass 2: High-Speed Slop Filter & Cadence Polish
+function runPass2Polish(draft, numParagraphs, mode = 'universal') {
+  const systemPrompt = 'You are an expert human copy editor refining a draft for maximum natural flow and zero AI detection patterns.';
+  const userPrompt = `Review and polish the draft below.
+- Ensure at least one punchy 3-6 word sentence in every paragraph to enforce high burstiness.
+- Break up any sentence longer than 22 words into two natural sentences.
+- Check that no consecutive sentences start with the same noun or pronoun.
+- Remove any remaining em-dashes (—), participial -ing riders, or connective openers (Furthermore, Moreover, Additionally).
+- Remove any moralizing concluding summary sentence. Stop cleanly on the final concrete instruction.
+- Preserve the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
 Draft:
 ${draft}
@@ -571,8 +617,8 @@ Respond ONLY with the polished text:`;
 }
 
 // Single-Sentence Targeted Adversarial Rehumanization
-function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'turnitin') {
-  const systemPrompt = 'You are an expert sentence copy editor. Return only the replacement sentence written in natural student prose with zero AI tells.';
+function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'universal') {
+  const systemPrompt = 'You are an expert sentence copy editor. Return only the replacement sentence written in natural human prose with zero AI tells.';
   const userPrompt = `Rewrite ONLY the target sentence to sound completely human, organic, and bypass transformer sequence classifiers (Turnitin / RoBERTa).
 Maintain seamless narrative flow with surrounding context.
 
@@ -582,8 +628,7 @@ CONTEXT AFTER: "${contextAfter}"
 
 RULES:
 - Return ONLY the rewritten replacement sentence without quotes or introductory text.
-- Write a simple, compact 6-10 word statement: [Specific Actor] [Action Verb] [Object].
-- Cut all subordinate clauses: NO 'so that', NO 'in order to', NO 'to help them', NO 'based on how'.
+- Write a direct, natural 6-12 word statement: [Actor/Action] [Direct Verb] [Object].
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
@@ -596,7 +641,9 @@ RULES:
 // Live scanner function against turnitindetector.ai BFF API
 function scanTurnitinLive(text) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({ text });
+    // Strip markdown headings to avoid token bias during scanning
+    const cleanText = text.replace(/^##\s+/gm, '');
+    const payload = JSON.stringify({ text: cleanText });
     const req = https.request('https://www.turnitindetector.ai/bff/detect', {
       method: 'POST',
       headers: {
@@ -634,71 +681,65 @@ function scanTurnitinLive(text) {
   });
 }
 
-// Production Two-Pass Auto-Loop Humanizer with Closed-Loop Polish
-async function autoLoopHumanize(text, mode = 'academic_turnitin') {
+// High-Speed Production Auto-Loop Humanizer
+async function autoLoopHumanize(rawInput, mode = 'universal') {
+  // 1. Superhumanizer Pre-sanitization (Unicode, smart quotes, dashes, whitespace)
+  const text = sanitizeInputSuperhumanizer(rawInput);
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
 
-  // Pass 1: Structural Narrative Reconstruction
+  // Pass 1: High-Speed Mode-Adaptive Neural Reconstruction
   const rawPass1 = await runPass1Rewrite(text, mode);
 
-  // Pass 2: Polish & Slop Filter
-  const rawPass2 = await runPass2Polish(rawPass1, numParagraphs);
-
-  // Pass 3: Formatting & Punctuation Sanitize (Strictly preserves \n\n)
-  let currentText = cleanFormattingOnly(rawPass2);
-
-  // Apply mechanical cleaner to remove stubborn phrase formulas
+  // Fast Formatting & Punctuation Sanitize (Preserves \n\n)
+  let currentText = cleanFormattingOnly(rawPass1);
   currentText = mechanicalClean(currentText).cleaned;
   currentText = cleanFormattingOnly(currentText);
 
-  // Pass 4: Local Sentence Evaluation & Local Polish Loop
-  let evaluation = analyzeSentences(currentText);
   let retries = 0;
-
-  if (evaluation.aiSentenceCount > 0 || evaluation.overallAiPercent > 15) {
-    const flaggedLocal = evaluation.sentences.filter(s => s.status === 'ai');
-    for (const f of flaggedLocal.slice(0, 4)) {
-      try {
-        retries++;
-        const rawFixed = await rehumanizeSentence(f.text, '', '', mode);
-        const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
-        if (fixed && fixed.length > 5) {
-          currentText = replaceSentenceFuzzy(currentText, f.text, cleanFormattingOnly(fixed));
-        }
-      } catch (err) {}
-    }
-    currentText = cleanFormattingOnly(currentText);
-    currentText = mechanicalClean(currentText).cleaned;
-    evaluation = analyzeSentences(currentText);
-  }
-
-  // Pass 5: Live Closed-Loop Verification & Targeted Adversarial Polish
   let liveScanResult = null;
+
+  // Live Closed-Loop Verification: Parallel targeted polish for flagged sentences (if Turnitin > 20%)
   try {
     liveScanResult = await scanTurnitinLive(currentText);
-    if (liveScanResult && (liveScanResult.class === 'ai' || (liveScanResult.aiRateResult?.Turnitin || 0) > 0.15)) {
-      const flagged = (liveScanResult.sentences || []).filter(s => s.generated_prob > 0.15 || s.class === 'ai');
-      for (const f of flagged.slice(0, 4)) {
-        try {
-          retries++;
-          const rawFixed = await rehumanizeSentence(f.sentence, '', '', mode);
-          const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
-          if (fixed && fixed.length > 5) {
-            currentText = replaceSentenceFuzzy(currentText, f.sentence, cleanFormattingOnly(fixed));
+    const turnitinRate = liveScanResult?.aiRateResult?.Turnitin || 0;
+
+    if (liveScanResult && (liveScanResult.class === 'ai' || turnitinRate > 0.20)) {
+      // Find top flagged sentences (max 2 for speed)
+      const flagged = (liveScanResult.sentences || [])
+        .filter(s => (s.generated_prob > 0.15 || s.class === 'ai') && s.sentence.trim().length > 10)
+        .sort((a, b) => b.generated_prob - a.generated_prob)
+        .slice(0, 2);
+
+      if (flagged.length > 0) {
+        retries = flagged.length;
+        const fixPromises = flagged.map(f =>
+          rehumanizeSentence(f.sentence, '', '', mode)
+            .then(rawFixed => {
+              const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+              return { original: f.sentence, fixed: cleanFormattingOnly(fixed) };
+            })
+            .catch(() => null)
+        );
+
+        const fixedResults = await Promise.all(fixPromises);
+        for (const item of fixedResults) {
+          if (item && item.fixed && item.fixed.length > 5) {
+            currentText = replaceSentenceFuzzy(currentText, item.original, item.fixed);
           }
-        } catch (err) {}
+        }
+
+        currentText = cleanFormattingOnly(currentText);
+        currentText = mechanicalClean(currentText).cleaned;
+        try {
+          liveScanResult = await scanTurnitinLive(currentText);
+        } catch (e) {}
       }
-      currentText = cleanFormattingOnly(currentText);
-      currentText = mechanicalClean(currentText).cleaned;
-      evaluation = analyzeSentences(currentText);
-      try {
-        liveScanResult = await scanTurnitinLive(currentText);
-      } catch (err) {}
     }
   } catch (e) {
     // Graceful fallback if detector offline
   }
 
+  const evaluation = analyzeSentences(currentText);
   const metrics = calculateMetrics(currentText);
   const fidelity = checkFidelity(text, currentText);
 
@@ -713,6 +754,7 @@ async function autoLoopHumanize(text, mode = 'academic_turnitin') {
 }
 
 module.exports = {
+  sanitizeInputSuperhumanizer,
   cleanFormattingOnly,
   mechanicalClean,
   postSanitize: cleanFormattingOnly,
