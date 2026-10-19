@@ -451,64 +451,67 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.85, freqPenalty
   const models = ['pesat-flash', 'pesat-lite', 'pesat-pro'];
   let lastErr = null;
 
-  for (const model of models) {
-    try {
-      const payload = JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature,
-        frequency_penalty: freqPenalty,
-        presence_penalty: 0.15,
-        max_tokens: 550
-      });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const model of models) {
+      try {
+        const payload = JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature,
+          frequency_penalty: freqPenalty,
+          presence_penalty: 0.15,
+          max_tokens: 550
+        });
 
-      return await new Promise((resolve, reject) => {
-        const url = new URL(creds.baseURL + '/chat/completions');
-        const req = https.request({
-          hostname: url.hostname,
-          port: url.port || 443,
-          path: url.pathname + url.search,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + creds.apiKey
-          },
-          servername: url.hostname,
-          lookup: safeLookup('104.21.80.151'),
-          timeout: 30000
-        }, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(data);
-              let content = parsed.choices?.[0]?.message?.content?.trim() || '';
-              content = content.replace(/^```[a-z]*\n/i, '').replace(/\n```$/, '');
-              if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
-                content = content.slice(1, -1).trim();
+        return await new Promise((resolve, reject) => {
+          const url = new URL(creds.baseURL + '/chat/completions');
+          const req = https.request({
+            hostname: url.hostname,
+            port: url.port || 443,
+            path: url.pathname + url.search,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + creds.apiKey
+            },
+            servername: url.hostname,
+            lookup: safeLookup('104.21.80.151'),
+            timeout: 45000
+          }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                const parsed = JSON.parse(data);
+                let content = parsed.choices?.[0]?.message?.content?.trim() || '';
+                content = content.replace(/^```[a-z]*\n/i, '').replace(/\n```$/, '');
+                if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
+                  content = content.slice(1, -1).trim();
+                }
+                if (content) resolve(content);
+                else reject(new Error('Empty content from ' + model));
+              } catch (e) {
+                reject(e);
               }
-              if (content) resolve(content);
-              else reject(new Error('Empty content from ' + model));
-            } catch (err) {
-              reject(new Error('Invalid neural response: ' + data.slice(0, 100)));
-            }
+            });
           });
-        });
 
-        req.on('error', reject);
-        req.on('timeout', () => {
-          req.destroy();
-          reject(new Error('Timeout on ' + model));
+          req.on('error', reject);
+          req.on('timeout', () => {
+            req.destroy();
+            reject(new Error('Timeout on ' + model));
+          });
+          req.write(payload);
+          req.end();
         });
-        req.write(payload);
-        req.end();
-      });
-    } catch (err) {
-      lastErr = err;
-      // try fallback model
+      } catch (err) {
+        lastErr = err;
+        await new Promise(r => setTimeout(r, 600));
+        // try fallback model
+      }
     }
   }
 
@@ -522,9 +525,9 @@ function runPass1Rewrite(text, mode = 'universal') {
   let systemPrompt = '';
   let userPrompt = '';
 
-  if (mode === 'academic_turnitin') {
+  if (mode === 'academic_turnitin' || mode === 'academic' || mode === 'turnitin') {
     systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
-    userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
+    userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa) and sliding-window perplexity (ZeroGPT).
 
 FEW-SHOT GOLD STANDARD EXAMPLE:
 Original:
@@ -537,31 +540,44 @@ Generative tools help researchers summarize journal articles. Automated grading 
 
 MANDATORY RULES:
 1. PRESERVE 100% CONTENT & CONCEPTS:
-   - Keep all technical mechanisms, numbers, and facts accurate. Do NOT invent external authors or citations.
+   - Keep all technical mechanisms, numbers, dates, and facts accurate. Do NOT invent external authors or citations.
    - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
 2. DE-NOMINALIZE & CONCRETIZE:
-   - Translate abstract academic umbrella terms into everyday operational tasks.
-3. SHORT DECLARATIVE CLAUSES (6 to 12 words per sentence):
-   - State one clear action per sentence: [Specific Actor] [Direct Verb] [Object].
+   - Use concrete human or organizational actors (e.g. 'College registrars', 'Network engineers', 'Biologists', 'Bank governors', 'Generals', 'Doctors').
+   - NEVER use abstract nominalizations as sentence subjects (do NOT write 'Transformation occurs', 'Lattice primitives evaluate', 'Monetary policy tools foster').
+   - State one clear action per sentence: [Specific Actor] [Direct Active Verb] [Concrete Object].
+3. SHORT DECLARATIVE CLAUSES & BURSTINESS (5 to 14 words per sentence):
    - Every paragraph MUST include at least one very short sentence (3 to 6 words).
+   - Mix short punchy statements with clear explanations.
 4. ABSOLUTE BANS:
    - Strictly NO concluding moral reflections. Stop immediately once the final concrete point is made.
+   - Strictly NO infinitive purpose tails (never end sentences with 'to steady the economy', 'to enhance outcomes', 'to optimize workflows'). State the direct action instead.
    - BAN AI buzzwords: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
-   - BAN staged syntax: NO infinitive openers ('To speed up X...'), NO 'not only X but also Y', NO forced triads.
-   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally).
+   - BAN staged syntax: NO infinitive openers ('To speed up X...'), NO 'not only X but also Y', NO 'rather than X, Y', NO forced triads.
+   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally, Consequently, In conclusion, Notably).
    - Exactly 3 to 4 short sentences per paragraph. Maximum 8 sentences total.
 
 Original Text:
 ${text}
 
 Respond ONLY with the rewritten text:`;
-  } else if (mode === 'conversational_zerogpt') {
-    systemPrompt = 'You are an authentic person telling an engaging, grounded real-world story or practical explanation. You write with natural human cadence, high burstiness, and zero robotic phrasing.';
-    userPrompt = `Rewrite the following text into natural, vivid, organic conversational prose with high burstiness.
-- Use natural phrasing, contractions, and varied sentence rhythms (alternate 3-6 word short sentences with 14-22 word fluid sentences).
-- Strictly NO em-dashes (—). NO participial -ing riders at sentence ends.
-- Keep all facts, quantities, numbers, and core points accurate.
-- Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
+  } else if (mode === 'conversational_zerogpt' || mode === 'zerogpt') {
+    systemPrompt = 'You are an authentic writer sharing a grounded experiential observation. You write with natural human cadence, high burstiness, and zero robotic advice templates.';
+    userPrompt = `Rewrite the following text into natural, grounded prose that evades ZeroGPT and transformer sequence classifiers.
+
+CRITICAL RULES FOR ZEROGPT BYPASS:
+1. BAN GENERIC CHATGPT ADVICE TEMPLATES:
+   - Do NOT write second-person commands ('You have to...', 'You should...', 'Do X until you feel...', 'Stand up...', 'Get up...').
+   - Do NOT write clichéd psychological summaries ('The goal is to break the mental link...', 'Once you combine X with Y, it signals your body to...').
+2. USE GROUNDED SITUATIONAL OR FIRST-PERSON CADENCE:
+   - Use either first-person experience ('I tossed and turned for twenty minutes before climbing out of bed...') or direct situational description ('Clinical sleep rules enforce a strict twenty-minute cutoff. Sleepers get out of bed immediately...').
+   - Anchor to concrete nouns: alarm clock, mattress, living room chair, dim lamp, paperback.
+3. HIGH BURSTINESS:
+   - Mix punchy 3-5 word sentences with natural 12-18 word sentences.
+4. ABSOLUTE BANS:
+   - ZERO em-dashes (—). ZERO participial -ing tails (', highlighting...', ', allowing...').
+   - Keep all facts, numbers (20 minutes), and core logic 100% accurate.
+   - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
 Text to rewrite:
 ${text}
@@ -619,7 +635,7 @@ Respond ONLY with the polished text:`;
 // Single-Sentence Targeted Adversarial Rehumanization
 function rehumanizeSentence(sentence, contextBefore = '', contextAfter = '', mode = 'universal') {
   const systemPrompt = 'You are an expert sentence copy editor. Return only the replacement sentence written in natural human prose with zero AI tells.';
-  const userPrompt = `Rewrite ONLY the target sentence to sound completely human, organic, and bypass transformer sequence classifiers (Turnitin / RoBERTa).
+  const userPrompt = `Rewrite ONLY the target sentence to sound completely human, conversational or grounded, and bypass ZeroGPT perplexity checks and Turnitin sequence classifiers.
 Maintain seamless narrative flow with surrounding context.
 
 CONTEXT BEFORE: "${contextBefore}"
@@ -628,7 +644,8 @@ CONTEXT AFTER: "${contextAfter}"
 
 RULES:
 - Return ONLY the rewritten replacement sentence without quotes or introductory text.
-- Write a direct, natural 6-12 word statement: [Actor/Action] [Direct Verb] [Object].
+- Write a direct, natural 5-14 word statement with active voice: [Actor] [Direct Action Verb] [Object].
+- Break up any abstract noun clusters ("mental link", "pedagogical transformation", "administrative workflows", "physical relaxation").
 - NO participial -ing tails (never end with ', highlighting...', ', thereby ensuring...').
 - NO connective openers ('Furthermore,', 'Moreover,', 'Additionally,').
 - NO 'not only X, but also Y' or 'rather than X, Y'.
@@ -636,6 +653,45 @@ RULES:
 - Do NOT repeat the context before or after.`;
 
   return callLLM(systemPrompt, userPrompt, 0.82, 0.20);
+}
+
+// Live scanner function against official ZeroGPT.com API
+function scanZeroGptLive(text) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify({ input_text: text });
+    const req = https.request('https://api.zerogpt.com/api/detect/detectText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://www.zerogpt.com',
+        'Referer': 'https://www.zerogpt.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+      },
+      timeout: 12000
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.success && json.data) {
+            resolve(json.data);
+          } else {
+            reject(new Error(json.message || 'ZeroGPT scan failed'));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Timeout connecting to ZeroGPT detector'));
+    });
+    req.write(payload);
+    req.end();
+  });
 }
 
 // Live scanner function against turnitindetector.ai BFF API
@@ -697,51 +753,92 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
 
   let retries = 0;
   let liveScanResult = null;
+  let zeroGptScanResult = null;
 
-  // Live Closed-Loop Verification: Parallel targeted polish for flagged sentences (if Turnitin > 20%)
-  try {
-    liveScanResult = await scanTurnitinLive(currentText);
-    const turnitinRate = liveScanResult?.aiRateResult?.Turnitin || 0;
+  // Live Closed-Loop Verification: Parallel targeted polish for flagged sentences (Turnitin + ZeroGPT + Local Heuristics)
+  for (let loop = 0; loop < 2; loop++) {
+    const localEval = analyzeSentences(currentText);
 
-    if (liveScanResult && (liveScanResult.class === 'ai' || turnitinRate > 0.20)) {
-      // Find top flagged sentences (max 2 for speed)
-      const flagged = (liveScanResult.sentences || [])
-        .filter(s => (s.generated_prob > 0.15 || s.class === 'ai') && s.sentence.trim().length > 10)
-        .sort((a, b) => b.generated_prob - a.generated_prob)
-        .slice(0, 2);
+    let turnitinFlagged = [];
+    let zeroGptFlagged = [];
 
-      if (flagged.length > 0) {
-        retries = flagged.length;
-        const fixPromises = flagged.map(f =>
-          rehumanizeSentence(f.sentence, '', '', mode)
-            .then(rawFixed => {
-              const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
-              return { original: f.sentence, fixed: cleanFormattingOnly(fixed) };
-            })
-            .catch(() => null)
-        );
+    const [tRes, zRes] = await Promise.allSettled([
+      scanTurnitinLive(currentText),
+      scanZeroGptLive(currentText)
+    ]);
 
-        const fixedResults = await Promise.all(fixPromises);
-        for (const item of fixedResults) {
-          if (item && item.fixed && item.fixed.length > 5) {
-            currentText = replaceSentenceFuzzy(currentText, item.original, item.fixed);
-          }
-        }
-
-        currentText = cleanFormattingOnly(currentText);
-        currentText = mechanicalClean(currentText).cleaned;
-        try {
-          liveScanResult = await scanTurnitinLive(currentText);
-        } catch (e) {}
+    if (tRes.status === 'fulfilled' && tRes.value) {
+      liveScanResult = tRes.value;
+      const turnitinRate = liveScanResult?.aiRateResult?.Turnitin || 0;
+      if (liveScanResult.class === 'ai' || turnitinRate > 0.20) {
+        turnitinFlagged = (liveScanResult.sentences || [])
+          .filter(s => (s.generated_prob > 0.15 || s.class === 'ai') && s.sentence.trim().length > 10)
+          .map(s => s.sentence);
       }
     }
-  } catch (e) {
-    // Graceful fallback if detector offline
+
+    if (zRes.status === 'fulfilled' && zRes.value) {
+      zeroGptScanResult = zRes.value;
+      if (zeroGptScanResult.fakePercentage > 15 && Array.isArray(zeroGptScanResult.h)) {
+        zeroGptFlagged = zeroGptScanResult.h.filter(s => typeof s === 'string' && s.trim().length > 10);
+      }
+    }
+
+    const localFlagged = localEval.sentences
+      .filter(s => s.status === 'ai' && s.text.length > 10)
+      .map(s => s.text);
+
+    // Combine unique flagged sentences (top 2 for high speed and socket stability)
+    const allFlaggedSet = new Set([...turnitinFlagged, ...zeroGptFlagged, ...localFlagged]);
+    const flaggedList = Array.from(allFlaggedSet).slice(0, 2);
+
+    if (flaggedList.length === 0) {
+      break; // Clean across all detectors
+    }
+
+    retries += flaggedList.length;
+
+    for (const sentence of flaggedList) {
+      try {
+        const rawFixed = await rehumanizeSentence(sentence, '', '', mode);
+        const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+        if (fixed && fixed.length > 5) {
+          currentText = replaceSentenceFuzzy(currentText, sentence, cleanFormattingOnly(fixed));
+        }
+      } catch (err) {}
+    }
+
+    currentText = cleanFormattingOnly(currentText);
+    currentText = mechanicalClean(currentText).cleaned;
+    break; // 1 targeted closed-loop pass is optimal
+  }
+
+  // Rescan final output if any modifications occurred during loop
+  if (retries > 0) {
+    try {
+      const [tFinal, zFinal] = await Promise.allSettled([
+        scanTurnitinLive(currentText),
+        scanZeroGptLive(currentText)
+      ]);
+      if (tFinal.status === 'fulfilled' && tFinal.value) liveScanResult = tFinal.value;
+      if (zFinal.status === 'fulfilled' && zFinal.value) zeroGptScanResult = zFinal.value;
+    } catch (e) {}
   }
 
   const evaluation = analyzeSentences(currentText);
   const metrics = calculateMetrics(currentText);
   const fidelity = checkFidelity(text, currentText);
+
+  // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
+  if (zeroGptScanResult) {
+    evaluation.detectors.zerogpt = {
+      name: 'ZeroGPT (Official Live)',
+      passed: zeroGptScanResult.fakePercentage <= 20,
+      score: zeroGptScanResult.fakePercentage + '% AI',
+      feedback: zeroGptScanResult.feedback
+    };
+    evaluation.zeroGptScore = zeroGptScanResult.fakePercentage;
+  }
 
   return {
     rewritten: currentText,
@@ -749,7 +846,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
     evaluation,
     fidelity,
     retryTries: retries,
-    liveScanResult
+    liveScanResult,
+    zeroGptScanResult
   };
 }
 
@@ -766,6 +864,7 @@ module.exports = {
   callLLM,
   rehumanizeSentence,
   scanTurnitinLive,
+  scanZeroGptLive,
   replaceSentenceFuzzy,
   autoLoopHumanize
 };

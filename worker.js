@@ -422,9 +422,9 @@ async function runPass1Rewrite(text, mode = 'universal', env = {}) {
   let systemPrompt = '';
   let userPrompt = '';
 
-  if (mode === 'academic_turnitin') {
+  if (mode === 'academic_turnitin' || mode === 'academic' || mode === 'turnitin') {
     systemPrompt = 'You are an authentic university undergraduate student and researcher. You write natural, direct prose with short declarative clauses, diverse sentence lengths, zero em-dashes, and zero AI signposts.';
-    userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa).
+    userPrompt = `Decompose and rewrite the following academic passage into direct, clean prose as an undergraduate student writing a research term paper. Your goal is to explain the core concepts completely while breaking transformer sequence detection patterns (Turnitin / RoBERTa) and sliding-window perplexity (ZeroGPT).
 
 FEW-SHOT GOLD STANDARD EXAMPLE:
 Original:
@@ -437,31 +437,44 @@ Generative tools help researchers summarize journal articles. Automated grading 
 
 MANDATORY RULES:
 1. PRESERVE 100% CONTENT & CONCEPTS:
-   - Keep all technical mechanisms, numbers, and facts accurate. Do NOT invent external authors or citations.
+   - Keep all technical mechanisms, numbers, dates, and facts accurate. Do NOT invent external authors or citations.
    - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
 2. DE-NOMINALIZE & CONCRETIZE:
-   - Translate abstract academic umbrella terms into everyday operational tasks.
-3. SHORT DECLARATIVE CLAUSES (6 to 12 words per sentence):
-   - State one clear action per sentence: [Specific Actor] [Direct Verb] [Object].
+   - Use concrete human or organizational actors (e.g. 'College registrars', 'Network engineers', 'Biologists', 'Bank governors', 'Generals', 'Doctors').
+   - NEVER use abstract nominalizations as sentence subjects (do NOT write 'Transformation occurs', 'Lattice primitives evaluate', 'Monetary policy tools foster').
+   - State one clear action per sentence: [Specific Actor] [Direct Active Verb] [Concrete Object].
+3. SHORT DECLARATIVE CLAUSES & BURSTINESS (5 to 14 words per sentence):
    - Every paragraph MUST include at least one very short sentence (3 to 6 words).
+   - Mix short punchy statements with clear explanations.
 4. ABSOLUTE BANS:
    - Strictly NO concluding moral reflections. Stop immediately once the final concrete point is made.
+   - Strictly NO infinitive purpose tails (never end sentences with 'to steady the economy', 'to enhance outcomes', 'to optimize workflows'). State the direct action instead.
    - BAN AI buzzwords: pivotal, cornerstone, foster, delve, tapestry, testament, seamlessly, unprecedented, utilize, landscape, interplay, vibrant, leverage, robust, at its core.
-   - BAN staged syntax: NO infinitive openers ('To speed up X...'), NO 'not only X but also Y', NO forced triads.
-   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally).
+   - BAN staged syntax: NO infinitive openers ('To speed up X...'), NO 'not only X but also Y', NO 'rather than X, Y', NO forced triads.
+   - NO em-dashes (—). NO connective openers (Furthermore, Moreover, Additionally, Consequently, In conclusion, Notably).
    - Exactly 3 to 4 short sentences per paragraph. Maximum 8 sentences total.
 
 Original Text:
 ${text}
 
 Respond ONLY with the rewritten text:`;
-  } else if (mode === 'conversational_zerogpt') {
-    systemPrompt = 'You are an authentic person telling an engaging, grounded real-world story or practical explanation. You write with natural human cadence, high burstiness, and zero robotic phrasing.';
-    userPrompt = `Rewrite the following text into natural, vivid, organic conversational prose with high burstiness.
-- Use natural phrasing, contractions, and varied sentence rhythms (alternate 3-6 word short sentences with 14-22 word fluid sentences).
-- Strictly NO em-dashes (—). NO participial -ing riders at sentence ends.
-- Keep all facts, quantities, numbers, and core points accurate.
-- Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
+  } else if (mode === 'conversational_zerogpt' || mode === 'zerogpt') {
+    systemPrompt = 'You are an authentic writer sharing a grounded experiential observation. You write with natural human cadence, high burstiness, and zero robotic advice templates.';
+    userPrompt = `Rewrite the following text into natural, grounded prose that evades ZeroGPT and transformer sequence classifiers.
+
+CRITICAL RULES FOR ZEROGPT BYPASS:
+1. BAN GENERIC CHATGPT ADVICE TEMPLATES:
+   - Do NOT write second-person commands ('You have to...', 'You should...', 'Do X until you feel...', 'Stand up...', 'Get up...').
+   - Do NOT write clichéd psychological summaries ('The goal is to break the mental link...', 'Once you combine X with Y, it signals your body to...').
+2. USE GROUNDED SITUATIONAL OR FIRST-PERSON CADENCE:
+   - Use either first-person experience ('I tossed and turned for twenty minutes before climbing out of bed...') or direct situational description ('Clinical sleep rules enforce a strict twenty-minute cutoff. Sleepers get out of bed immediately...').
+   - Anchor to concrete nouns: alarm clock, mattress, living room chair, dim lamp, paperback.
+3. HIGH BURSTINESS:
+   - Mix punchy 3-5 word sentences with natural 12-18 word sentences.
+4. ABSOLUTE BANS:
+   - ZERO em-dashes (—). ZERO participial -ing tails (', highlighting...', ', allowing...').
+   - Keep all facts, numbers (20 minutes), and core logic 100% accurate.
+   - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
 
 Text to rewrite:
 ${text}
@@ -558,6 +571,28 @@ async function scanTurnitinLive(text) {
   throw new Error(parsed.message || 'Turnitin live scan failed');
 }
 
+async function scanZeroGptLive(text) {
+  const res = await fetch('https://api.zerogpt.com/api/detect/detectText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://www.zerogpt.com',
+      'Referer': 'https://www.zerogpt.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+    },
+    body: JSON.stringify({ input_text: text })
+  });
+
+  if (!res.ok) {
+    throw new Error('ZeroGPT detector responded with status ' + res.status);
+  }
+  const parsed = await res.json();
+  if (parsed.success && parsed.data) {
+    return parsed.data;
+  }
+  throw new Error(parsed.message || 'ZeroGPT live scan failed');
+}
+
 async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   const text = sanitizeInputSuperhumanizer(rawInput);
   const numParagraphs = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0).length || 1;
@@ -572,50 +607,89 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
 
   let retries = 0;
   let liveScanResult = null;
+  let zeroGptScanResult = null;
 
-  // Live Closed-Loop Verification: Parallel targeted polish for flagged sentences (if Turnitin > 20%)
-  try {
-    liveScanResult = await scanTurnitinLive(currentText);
-    const turnitinRate = liveScanResult?.aiRateResult?.Turnitin || 0;
+  // Live Closed-Loop Verification: Targeted polish for flagged sentences (Turnitin + ZeroGPT + Local Heuristics)
+  for (let loop = 0; loop < 2; loop++) {
+    const localEval = analyzeSentences(currentText);
+    let turnitinFlagged = [];
+    let zeroGptFlagged = [];
 
-    if (liveScanResult && (liveScanResult.class === 'ai' || turnitinRate > 0.20)) {
-      const flagged = (liveScanResult.sentences || [])
-        .filter(s => (s.generated_prob > 0.15 || s.class === 'ai') && s.sentence.trim().length > 10)
-        .sort((a, b) => b.generated_prob - a.generated_prob)
-        .slice(0, 2);
+    const [tRes, zRes] = await Promise.allSettled([
+      scanTurnitinLive(currentText),
+      scanZeroGptLive(currentText)
+    ]);
 
-      if (flagged.length > 0) {
-        retries = flagged.length;
-        const fixPromises = flagged.map(f =>
-          rehumanizeSentence(f.sentence, '', '', mode, env)
-            .then(rawFixed => {
-              const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
-              return { original: f.sentence, fixed: cleanFormattingOnly(fixed) };
-            })
-            .catch(() => null)
-        );
-
-        const fixedResults = await Promise.all(fixPromises);
-        for (const item of fixedResults) {
-          if (item && item.fixed && item.fixed.length > 5) {
-            currentText = replaceSentenceFuzzy(currentText, item.original, item.fixed);
-          }
-        }
-
-        currentText = cleanFormattingOnly(currentText);
-        currentText = mechanicalClean(currentText).cleaned;
-        try {
-          liveScanResult = await scanTurnitinLive(currentText);
-        } catch (e) {}
+    if (tRes.status === 'fulfilled' && tRes.value) {
+      liveScanResult = tRes.value;
+      const turnitinRate = liveScanResult?.aiRateResult?.Turnitin || 0;
+      if (liveScanResult.class === 'ai' || turnitinRate > 0.20) {
+        turnitinFlagged = (liveScanResult.sentences || [])
+          .filter(s => (s.generated_prob > 0.15 || s.class === 'ai') && s.sentence.trim().length > 10)
+          .map(s => s.sentence);
       }
     }
-  } catch (e) {
-    // Graceful fallback if detector offline
+
+    if (zRes.status === 'fulfilled' && zRes.value) {
+      zeroGptScanResult = zRes.value;
+      if (zeroGptScanResult.fakePercentage > 15 && Array.isArray(zeroGptScanResult.h)) {
+        zeroGptFlagged = zeroGptScanResult.h.filter(s => typeof s === 'string' && s.trim().length > 10);
+      }
+    }
+
+    const localFlagged = localEval.sentences
+      .filter(s => s.status === 'ai' && s.text.length > 10)
+      .map(s => s.text);
+
+    const allFlaggedSet = new Set([...turnitinFlagged, ...zeroGptFlagged, ...localFlagged]);
+    const flaggedList = Array.from(allFlaggedSet).slice(0, 2);
+
+    if (flaggedList.length === 0) {
+      break;
+    }
+
+    retries += flaggedList.length;
+
+    for (const sentence of flaggedList) {
+      try {
+        const rawFixed = await rehumanizeSentence(sentence, '', '', mode, env);
+        const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
+        if (fixed && fixed.length > 5) {
+          currentText = replaceSentenceFuzzy(currentText, sentence, cleanFormattingOnly(fixed));
+        }
+      } catch (err) {}
+    }
+
+    currentText = cleanFormattingOnly(currentText);
+    currentText = mechanicalClean(currentText).cleaned;
+    break;
+  }
+
+  // Rescan final output if modifications occurred
+  if (retries > 0) {
+    try {
+      const [tFinal, zFinal] = await Promise.allSettled([
+        scanTurnitinLive(currentText),
+        scanZeroGptLive(currentText)
+      ]);
+      if (tFinal.status === 'fulfilled' && tFinal.value) liveScanResult = tFinal.value;
+      if (zFinal.status === 'fulfilled' && zFinal.value) zeroGptScanResult = zFinal.value;
+    } catch (e) {}
   }
 
   const metrics = calculateMetrics(currentText);
   const evaluation = analyzeSentences(currentText);
   const fidelity = checkFidelity(text, currentText);
+
+  if (zeroGptScanResult) {
+    evaluation.detectors.zerogpt = {
+      name: 'ZeroGPT (Official Live)',
+      passed: zeroGptScanResult.fakePercentage <= 20,
+      score: zeroGptScanResult.fakePercentage + '% AI',
+      feedback: zeroGptScanResult.feedback
+    };
+    evaluation.zeroGptScore = zeroGptScanResult.fakePercentage;
+  }
 
   return {
     rewritten: currentText,
@@ -623,7 +697,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
     evaluation,
     fidelity,
     retryTries: retries,
-    liveScanResult
+    liveScanResult,
+    zeroGptScanResult
   };
 }
 

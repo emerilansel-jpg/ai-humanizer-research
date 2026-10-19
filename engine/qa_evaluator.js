@@ -2,7 +2,7 @@
 // 5-Cycle Rigorous QA Evaluation Suite across 5 distinct academic & professional genres.
 // Evaluates Fidelity, Formatting/Paragraph Preservation, POV Expert Writer Voice, and Live Detector Status.
 
-const { autoLoopHumanize, scanTurnitinLive, checkFidelity } = require('./humanizer.js');
+const { autoLoopHumanize, scanTurnitinLive, scanZeroGptLive, checkFidelity } = require('./humanizer.js');
 
 const QA_CASES = [
   {
@@ -78,42 +78,66 @@ async function runQAEvaluation() {
     const outputWords = humanized.rewritten.split(/\s+/).length;
     console.log(`  - Output: ${outputParagraphs} paragraphs (Preserved: ${inputParagraphs === outputParagraphs ? 'YES' : 'NO'}), ${outputWords} words (${duration}s).`);
 
-    // Scan on live Turnitin API
-    console.log('  - Scanning on live Turnitin API (turnitindetector.ai)...');
+    // Scan on live Turnitin & official ZeroGPT API
+    console.log('  - Scanning on live Turnitin sequence classifier and official ZeroGPT.com API...');
     let liveScan = null;
-    try {
-      liveScan = await scanTurnitinLive(humanized.rewritten);
-    } catch (e) {
-      console.log('    Live scan API warning:', e.message);
+    let zeroGptScan = null;
+
+    const [tRes, zRes] = await Promise.allSettled([
+      scanTurnitinLive(humanized.rewritten),
+      scanZeroGptLive(humanized.rewritten)
+    ]);
+
+    if (tRes.status === 'fulfilled' && tRes.value) {
+      liveScan = tRes.value;
+    } else {
+      console.log('    Turnitin live scan warning:', tRes.reason?.message);
+    }
+
+    if (zRes.status === 'fulfilled' && zRes.value) {
+      zeroGptScan = zRes.value;
+    } else {
+      console.log('    ZeroGPT live scan warning:', zRes.reason?.message);
     }
 
     const turnitinScore = liveScan ? Math.round((liveScan.aiRateResult?.Turnitin || 0) * 100) : (humanized.metrics.sentenceEval.turnitinScore || 0);
-    const zeroGptScore = liveScan ? Math.round((liveScan.aiRateResult?.ZeroGPT || 0) * 100) : (humanized.metrics.sentenceEval.zeroGptScore || 0);
-    const humanRate = liveScan ? Math.round((liveScan.humanRate || 0) * 100) : humanized.metrics.humanPercent;
-    const verdict = liveScan ? liveScan.class.toUpperCase() : (turnitinScore <= 35 ? 'HUMAN' : 'AI');
+    const zeroGptScore = zeroGptScan ? Math.round(zeroGptScan.fakePercentage || 0) : (humanized.metrics.sentenceEval.zeroGptScore || 0);
+    const verdict = (zeroGptScore <= 20 && turnitinScore <= 25) ? 'HUMAN' : ((zeroGptScore > 40 || turnitinScore > 40) ? 'AI' : 'MIXED');
 
     // 1. Fidelity Check (0-10)
     const fidelityCheck = checkFidelity(testCase.input, humanized.rewritten);
     const hasHallucinations = humanized.rewritten.toLowerCase().includes('canvas') || humanized.rewritten.toLowerCase().includes('nist');
-    const fidelityScore = (fidelityCheck.numbersPreserved && !hasHallucinations) ? 10 : 9;
+    const fidelityScore = (fidelityCheck.numbersPreserved && !hasHallucinations) ? 10 : 8;
 
     // 2. Paragraph Preservation Score (0-10)
-    const paragraphScore = (inputParagraphs === outputParagraphs) ? 10 : 6;
+    const paragraphScore = (inputParagraphs === outputParagraphs) ? 10 : 5;
 
     // 3. Expert Writer POV Score (0-10)
-    // Check no em-dashes, no connective adverbs, good burstiness
+    // Check no em-dashes, no connective adverbs, good burstiness, no participial tails
     const hasEmDash = humanized.rewritten.includes('—');
     const hasConnectives = /(?:Furthermore|Moreover|Additionally|In conclusion),\s+/i.test(humanized.rewritten);
+    const hasParticipialTail = /,\s+(?:thus\s+|thereby\s+)?(?:highlighting|ensuring|allowing|fostering)\b/i.test(humanized.rewritten);
     const burstiness = humanized.metrics.burstiness;
     let writerScore = 10;
     if (hasEmDash) writerScore -= 2;
     if (hasConnectives) writerScore -= 2;
+    if (hasParticipialTail) writerScore -= 2;
     if (burstiness < 4) writerScore -= 1;
 
     // 4. Detection Score (0-10)
+    // Genuine strict evaluation: requires passing both Turnitin and official ZeroGPT
     let detectionScore = 10;
-    if (turnitinScore > 40) detectionScore = 7;
-    else if (turnitinScore > 25) detectionScore = 9;
+    if (turnitinScore <= 20 && zeroGptScore <= 20) {
+      detectionScore = 10;
+    } else if (turnitinScore <= 30 && zeroGptScore <= 35) {
+      detectionScore = 9;
+    } else if (turnitinScore <= 40 && zeroGptScore <= 45) {
+      detectionScore = 8;
+    } else if (turnitinScore <= 50 || zeroGptScore <= 50) {
+      detectionScore = 6;
+    } else {
+      detectionScore = 4;
+    }
 
     const overallScore = Number(((fidelityScore + paragraphScore + writerScore + detectionScore) / 4).toFixed(1));
 
