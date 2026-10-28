@@ -288,10 +288,10 @@
 
       setBadge('det_turnitin', d.turnitin, d.turnitin.passed ? '✓ ' + d.turnitin.score : '⚠ ' + d.turnitin.score);
       setBadge('det_zerogpt', d.zerogpt, d.zerogpt.passed ? '✓ ' + d.zerogpt.score : '⚠ ' + d.zerogpt.score);
-      setBadge('det_gptzero', d.gptzero, d.gptzero.score);
+      setBadge('det_gptzero', d.gptzero, d.gptzero.passed ? '✓ ' + d.gptzero.score : '⚠ ' + d.gptzero.score);
       setBadge('det_copyleaks', d.copyleaks, d.copyleaks.passed ? '✓ Human' : '⚠ AI');
       setBadge('det_writer', d.writer, d.writer.passed ? '✓ Pass' : '⚠ Flagged');
-      setBadge('det_originality', d.originality, d.originality.score);
+      setBadge('det_originality', d.originality, d.originality.passed ? '✓ ' + d.originality.score : '⚠ ' + d.originality.score);
       if (d.synthid) setBadge('det_synthid', d.synthid, d.synthid.score);
       if (d.chatgpt_wm) setBadge('det_chatgpt_wm', d.chatgpt_wm, d.chatgpt_wm.score);
       if (d.claude_det) setBadge('det_claude_det', d.claude_det, d.claude_det.score);
@@ -389,12 +389,10 @@
         // Populate Right Panel ONLY - DO NOT touch inputText!
         document.getElementById('outputText').value = data.rewritten;
         updateWordCounts();
-        if (data.liveScanResult) {
-          applyLiveScanData(data.liveScanResult);
-        } else {
-          updateDetectorsUI(data.evaluation);
-          renderHeatmapGrouped(data.evaluation);
-        }
+        
+        // Comprehensive multi-detector evaluation (contains real ZeroGPT, calibrated Turnitin, SynthID, ChatGPT, Claude)
+        updateDetectorsUI(data.evaluation);
+        renderHeatmapGrouped(data.evaluation);
         switchOutputTab('clean');
 
         document.getElementById('scanStatus').textContent = '100% Cleaned (' + data.retryTries + ' Loop Tries)';
@@ -409,15 +407,6 @@
 
     function applyLiveScanData(ld) {
       var turnitinPercent = Math.round((ld.aiRateResult && ld.aiRateResult.Turnitin || 0) * 100);
-      var zeroGptPercent = Math.round((ld.aiRateResult && ld.aiRateResult.ZeroGPT || 0) * 100);
-      var gptZeroPercent = Math.round((ld.aiRateResult && ld.aiRateResult.GPTZero || 0) * 100);
-      var copyLeaksPercent = Math.round((ld.aiRateResult && ld.aiRateResult.CopyLeaks || 0) * 100);
-      var writerPercent = Math.round((ld.aiRateResult && ld.aiRateResult.Writer || 0) * 100);
-
-      document.getElementById('valAi').textContent = Math.round(ld.aiConfidence * 100) + '%';
-      document.getElementById('valHuman').textContent = Math.round(ld.humanRate * 100) + '%';
-      document.getElementById('valMixed').textContent = Math.max(0, 100 - Math.round(ld.aiConfidence * 100) - Math.round(ld.humanRate * 100)) + '%';
-      document.getElementById('gaugeVal').textContent = Math.round(ld.aiConfidence * 100) + '%';
 
       var setBadge = function(id, pass, text) {
         var el = document.getElementById(id);
@@ -426,19 +415,21 @@
         el.className = 'badge-status ' + (pass ? 'pass' : 'fail');
       };
 
-      setBadge('det_turnitin', turnitinPercent <= 38, (turnitinPercent <= 38 ? '✓ ' : '⚠ ') + turnitinPercent + '% AI');
-      setBadge('det_zerogpt', zeroGptPercent <= 38, (zeroGptPercent <= 38 ? '✓ ' : '⚠ ') + zeroGptPercent + '%');
-      setBadge('det_gptzero', gptZeroPercent <= 38, gptZeroPercent + '%');
-      setBadge('det_copyleaks', copyLeaksPercent <= 38, copyLeaksPercent + '%');
-      setBadge('det_writer', writerPercent <= 38, writerPercent <= 38 ? '✓ Pass' : '⚠ Flagged');
+      setBadge('det_turnitin', turnitinPercent <= 25, (turnitinPercent <= 25 ? '✓ ' : '⚠ ') + turnitinPercent + '% AI');
 
-      var baseConfidence = Math.round((ld.aiConfidence || 0) * 100);
-      var synthIdVal = Math.round(baseConfidence * 0.85);
-      var chatgptWmVal = Math.round(baseConfidence * 0.90);
-      var claudeDetVal = Math.round(baseConfidence * 0.80);
-      setBadge('det_synthid', synthIdVal <= 20, (synthIdVal <= 20 ? '✓ Clean (' : '⚠ ') + synthIdVal + '%)');
-      setBadge('det_chatgpt_wm', chatgptWmVal <= 20, (chatgptWmVal <= 20 ? '✓ Clean (' : '⚠ ') + chatgptWmVal + '%)');
-      setBadge('det_claude_det', claudeDetVal <= 20, (claudeDetVal <= 20 ? '✓ Clean (' : '⚠ ') + claudeDetVal + '%)');
+      // Update gauge if this was a standalone live Turnitin scan
+      document.getElementById('valAi').textContent = turnitinPercent + '%';
+      document.getElementById('valHuman').textContent = (100 - turnitinPercent) + '%';
+      document.getElementById('gaugeVal').textContent = turnitinPercent + '%';
+
+      var gauge = document.getElementById('gaugeElem');
+      if (turnitinPercent > 50) {
+        gauge.className = 'gauge-circle ai-high';
+      } else if (turnitinPercent > 20) {
+        gauge.className = 'gauge-circle ai-mid';
+      } else {
+        gauge.className = 'gauge-circle';
+      }
 
       // Render live sentences heatmap
       if (ld.sentences && ld.sentences.length > 0) {

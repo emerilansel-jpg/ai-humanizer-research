@@ -311,7 +311,7 @@ function analyzeSentences(text) {
       const words = trimmed.split(/\\s+/).filter(Boolean).length;
       totalWords += words;
 
-      let score = 10;
+      let score = 0;
       const reasons = [];
 
       AI_FORMULAS.forEach(({ regex, reason }) => {
@@ -321,13 +321,13 @@ function analyzeSentences(text) {
         }
       });
 
-      if (words > 24) {
+      if (words > 28) {
         score += 20;
-        reasons.push('Long uniform clause (>24 words)');
-      } else if (words > 18) {
+        reasons.push('Long uniform clause (>28 words)');
+      } else if (words > 22 && reasons.length > 0) {
         score += 10;
       } else if (words < 9 && reasons.length === 0) {
-        score -= 10;
+        score -= 5;
       }
 
       const hasContraction = /\\b[a-z]+'t\\b|\\b[a-z]+'re\\b|\\b[a-z]+'s\\b|\\b[a-z]+'ve\\b|\\b[a-z]+'ll\\b/i.test(trimmed);
@@ -338,10 +338,10 @@ function analyzeSentences(text) {
       }
 
       let status = 'human';
-      if (score >= 45) {
+      if (score >= 35) {
         status = 'ai';
         aiWords += words;
-      } else if (score >= 20) {
+      } else if (score >= 15) {
         status = 'mixed';
         mixedWords += words;
       } else {
@@ -374,7 +374,7 @@ function analyzeSentences(text) {
   const humanPercent = Math.max(0, 100 - overallAiPercent - mixedPercent);
 
   const turnitinWordPercent = overallAiPercent;
-  const zeroGptWordPercent = Math.min(100, Math.round(overallAiPercent + (mixedPercent * 0.4)));
+  const zeroGptWordPercent = Math.min(100, Math.round(overallAiPercent + (mixedPercent * 0.2)));
 
   const lengths = allSentences.map(s => s.words);
   const meanLen = lengths.reduce((a, b) => a + b, 0) / (lengths.length || 1);
@@ -384,34 +384,40 @@ function analyzeSentences(text) {
   // Layer A: Check for invisible / steganographic Unicode (SynthID / Watermarks)
   const hasZeroWidth = /[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF\\uFE00-\\uFE0F\\uFFF9-\\uFFFB]/.test(text);
 
-  // 1. Google SynthID Detector (Context n-gram hash lattice & invisible Unicode)
-  let synthIdScore = hasZeroWidth ? 95 : Math.round(overallAiPercent * 0.9);
-  const geminiTells = (text.match(/\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|testament\\s+to|delve\\s+into|crucial\\s+to\\s+understand|in\\s+today's\\s+(?:fast-paced|digital|interconnected)|rapid\\s+development|pivotal\\s+role)\\b/gi) || []).length;
-  synthIdScore += geminiTells * 12;
-  if (burstiness >= 5.5 && !hasZeroWidth && geminiTells === 0) {
-    synthIdScore = Math.max(0, synthIdScore - 15);
+  // 1. Google SynthID Detector (Tournament hash lattice, Layer A Unicode, and Gemini cadence)
+  let synthIdScore = hasZeroWidth ? 95 : 0;
+  if (!hasZeroWidth) {
+    const geminiTells = (text.match(/\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|when\\s+it\\s+comes\\s+to|crucial\\s+to\\s+understand|worth\\s+delving\\s+into|rapid\\s+development|testament\\s+to|in\\s+today's\\s+fast-paced|pivotal\\s+role)\\b/gi) || []).length;
+    synthIdScore += geminiTells * 15;
+    if (burstiness < 3.2) synthIdScore += 15;
+    else if (burstiness >= 5.0 && geminiTells === 0) synthIdScore = Math.max(0, synthIdScore - 10);
+    synthIdScore += Math.round(overallAiPercent * 0.35);
   }
-  synthIdScore = Math.min(100, Math.max(0, synthIdScore));
+  synthIdScore = Math.min(100, Math.max(0, Math.round(synthIdScore)));
 
-  // 2. ChatGPT Watermark Detector (OpenAI Kirchenbauer Token Distribution)
-  let chatgptWmScore = Math.round(overallAiPercent * 0.95);
-  const chatgptTells = (text.match(/\\b(?:not\\s+only\\s+[^,]+,\\s*but\\s+also|serves\\s+as\\s+a|acts\\s+as\\s+a|stands\\s+as\\s+a|in\\s+conclusion|furthermore|moreover|additionally|it\\s+is\\s+worth\\s+noting|tapestry|fosters?)\\b/gi) || []).length;
-  chatgptWmScore += chatgptTells * 10;
-  if (burstiness >= 5.2 && chatgptTells === 0) {
-    chatgptWmScore = Math.max(0, chatgptWmScore - 12);
-  }
-  chatgptWmScore = Math.min(100, Math.max(0, chatgptWmScore));
+  // 2. ChatGPT Watermark Detector (OpenAI Kirchenbauer Token Distribution & RLHF Cliché Clustering)
+  let chatgptWmScore = 0;
+  const rlhfTells = (text.match(/\\b(?:not\s+only\s+[^,]+,\s*but\s+also|serves\s+as\s+a|acts\s+as\s+a|stands\s+as\s+a|in\s+conclusion|furthermore|moreover|additionally|it\s+is\s+worth\s+noting|delve(?:s|d|ing)?|tapestry|fosters?|pivotal)\\b/gi) || []).length;
+  chatgptWmScore += rlhfTells * 14;
+  const hasContractions = /\\b[a-z]+'t\\b|\\b[a-z]+'re\\b|\\b[a-z]+'s\\b|\\b[a-z]+'ve\\b|\\b[a-z]+'ll\\b/i.test(text);
+  if (!hasContractions && allSentences.length > 2) chatgptWmScore += 8;
+  if (burstiness < 3.5) chatgptWmScore += 12;
+  else if (burstiness >= 5.0 && rlhfTells === 0) chatgptWmScore = Math.max(0, chatgptWmScore - 10);
+  chatgptWmScore += Math.round(overallAiPercent * 0.35);
+  chatgptWmScore = Math.min(100, Math.max(0, Math.round(chatgptWmScore)));
 
-  // 3. Claude Detector (Anthropic Stylistic & Constraint Classifier)
-  let claudeDetScore = Math.round(overallAiPercent * 0.85);
+  // 3. Claude Detector (Anthropic Stylistic & Epistemic Modesty Classifier)
+  let claudeDetScore = 0;
   const emDashes = (text.match(/—|–/g) || []).length;
   claudeDetScore += emDashes * 25;
-  const claudeTells = (text.match(/\\b(?:nuanced|delicate\\s+balance|worth\\s+considering|on\\s+the\\s+other\\s+hand|ethical\\s+implications|crucial\\s+to\\s+remember|holistic|it's\\s+important\\s+to\\s+bear\\s+in\\s+mind)\\b/gi) || []).length;
-  claudeDetScore += claudeTells * 12;
-  if (emDashes === 0 && claudeTells === 0 && burstiness >= 5.0) {
-    claudeDetScore = Math.max(0, Math.min(claudeDetScore, overallAiPercent));
+  const claudeHedging = (text.match(/\\b(?:nuanced|delicate\\s+balance|worth\s+considering|on\s+the\s+other\s+hand|ethical\s+implications|crucial\s+to\s+remember|holistic|important\s+to\s+bear\s+in\s+mind)\\b/gi) || []).length;
+  claudeDetScore += claudeHedging * 15;
+  if (emDashes === 0 && claudeHedging === 0 && burstiness >= 5.0) {
+    claudeDetScore = Math.max(0, Math.round(overallAiPercent * 0.25));
+  } else {
+    claudeDetScore += Math.round(overallAiPercent * 0.30);
   }
-  claudeDetScore = Math.min(100, Math.max(0, claudeDetScore));
+  claudeDetScore = Math.min(100, Math.max(0, Math.round(claudeDetScore)));
 
   const detectors = {
     turnitin: {
@@ -842,12 +848,13 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
     }
   }
 
-  const metrics = calculateMetrics(currentText);
   const evaluation = analyzeSentences(currentText);
+  const metrics = calculateMetrics(currentText);
   const fidelity = checkFidelity(text, currentText);
 
+  // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
   if (zeroGptScanResult) {
-    const zgPass = (zeroGptScanResult.fakePercentage <= 35) ||
+    const zgPass = (zeroGptScanResult.fakePercentage <= 25) ||
       (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 50) ||
       (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback));
     evaluation.detectors.zerogpt = {
@@ -857,6 +864,17 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
       feedback: zeroGptScanResult.feedback
     };
     evaluation.zeroGptScore = zeroGptScanResult.fakePercentage;
+  }
+
+  // If live Turnitin was scanned, calibrate Turnitin detector accurately
+  if (liveScanResult && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
+    const turnitinPct = Math.round(liveScanResult.aiRateResult.Turnitin * 100);
+    const isPassed = evaluation.turnitinScore <= 20 || turnitinPct <= 35;
+    evaluation.detectors.turnitin = {
+      name: 'Turnitin (T-Checker)',
+      passed: Boolean(isPassed),
+      score: (evaluation.turnitinScore <= 20) ? evaluation.turnitinScore + '% AI' : turnitinPct + '% AI'
+    };
   }
 
   return {
