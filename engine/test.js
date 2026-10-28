@@ -55,22 +55,45 @@ autoLoopHumanize(userScreenshotSample, 'zerogpt')
     assert(!res.rewritten.includes('—'), 'Rewritten text must not contain em-dashes');
     console.log('Test 5 PASSED.');
 
-    console.log('\n--- Test 6: Academic Essay / Turnitin RoBERTa Bypass Verification ---');
-    const academicSample = 'Artificial intelligence plays a pivotal role in higher education. Furthermore, adaptive learning algorithms foster personalized instruction by analyzing individual student performance metrics. In addition, these computational frameworks serve as a cornerstone for modern pedagogical methodologies, thereby ensuring equitable learning outcomes for diverse cohorts.';
-    const acadRes = await autoLoopHumanize(academicSample, 'academic_turnitin');
-    console.log('Academic Rewritten:\n', acadRes.rewritten);
-    console.log('Turnitin AI Score:', acadRes.evaluation.turnitinScore + '%');
-    console.log('ZeroGPT Score:', acadRes.evaluation.zeroGptScore + '%');
-    assert(acadRes.evaluation.turnitinScore <= 10, 'Turnitin score must be <= 10%');
-    assert(acadRes.evaluation.detectors.turnitin.passed === true, 'Turnitin check must pass');
-    assert(!acadRes.rewritten.includes('—'), 'Must not contain em-dashes');
-    assert(!acadRes.rewritten.toLowerCase().includes('furthermore,'), 'Must not contain Furthermore,');
-    assert(!acadRes.rewritten.toLowerCase().includes('serves as'), 'Must not contain serves as');
-    console.log('Test 6 PASSED.');
+	    console.log('\n--- Test 6: Academic Essay / Turnitin RoBERTa Bypass Verification ---');
+	    const academicSample = 'Artificial intelligence plays a pivotal role in higher education. Furthermore, adaptive learning algorithms foster personalized instruction by analyzing individual student performance metrics. In addition, these computational frameworks serve as a cornerstone for modern pedagogical methodologies, thereby ensuring equitable learning outcomes for diverse cohorts.';
+	    const acadRes = await autoLoopHumanize(academicSample, 'academic_turnitin');
+	    console.log('Academic Rewritten:\n', acadRes.rewritten);
+	    console.log('Turnitin AI Score:', acadRes.evaluation.turnitinScore + '%');
+	    console.log('ZeroGPT Score:', acadRes.evaluation.zeroGptScore + '%');
+	    assert(acadRes.evaluation.turnitinScore <= 10, 'Turnitin score must be <= 10%');
+	    assert(acadRes.evaluation.detectors.turnitin.passed === true, 'Turnitin check must pass');
+	    assert(!acadRes.rewritten.includes('—'), 'Must not contain em-dashes');
+	    assert(!acadRes.rewritten.toLowerCase().includes('furthermore,'), 'Must not contain Furthermore,');
+	    assert(!acadRes.rewritten.toLowerCase().includes('serves as'), 'Must not contain serves as');
+	    console.log('Test 6 PASSED.');
 
-    console.log('\nALL AUDIT & END-TO-END VERIFICATIONS PASSED (6/6).');
-  })
-  .catch(err => {
-    console.error('Test Failed:', err);
-    process.exit(1);
-  });
+	    console.log('\n--- Test 7: Balance Mode & Watermark Detectors (SynthID, ChatGPT, Claude) ---');
+	    const rawDetection = analyzeSentences(rawAiSample);
+	    console.log('Raw SynthID Score:', rawDetection.detectors.synthid.score);
+	    console.log('Raw ChatGPT WM Score:', rawDetection.detectors.chatgpt_wm.score);
+	    console.log('Raw Claude Detector Score:', rawDetection.detectors.claude_det.score);
+	    assert(rawDetection.synthIdScore > 40, 'Raw AI text must be flagged by SynthID detector');
+	    assert(rawDetection.chatgptWmScore > 40, 'Raw AI text must be flagged by ChatGPT watermark detector');
+
+	    const balanceRes = await autoLoopHumanize(rawAiSample, 'balance');
+	    console.log('Balance Mode Rewritten:\n', balanceRes.rewritten);
+	    console.log('Balance Overall AI %:', balanceRes.evaluation.overallAiPercent + '%');
+	    console.log('Balance SynthID Score:', balanceRes.evaluation.detectors.synthid.score);
+	    console.log('Balance ChatGPT WM Score:', balanceRes.evaluation.detectors.chatgpt_wm.score);
+	    console.log('Balance Claude Detector Score:', balanceRes.evaluation.detectors.claude_det.score);
+	    assert(balanceRes.evaluation.overallAiPercent <= 15, 'Balance mode AI % must be <= 15%');
+	    assert(balanceRes.evaluation.detectors.synthid.passed === true, 'Google SynthID check must pass');
+	    assert(balanceRes.evaluation.detectors.chatgpt_wm.passed === true, 'ChatGPT watermark check must pass');
+	    assert(balanceRes.evaluation.detectors.claude_det.passed === true, 'Claude detector check must pass');
+	    assert(balanceRes.evaluation.detectors.turnitin.passed === true, 'Turnitin check must pass in balance mode');
+	    assert(balanceRes.evaluation.detectors.zerogpt.passed === true, 'ZeroGPT check must pass in balance mode');
+	    assert(balanceRes.fidelity.numbersPreserved === true, 'Numbers (42%, 2025) must be preserved in balance mode');
+	    console.log('Test 7 PASSED.');
+
+	    console.log('\nALL AUDIT & END-TO-END VERIFICATIONS PASSED (7/7).');
+	  })
+	  .catch(err => {
+	    console.error('Test Failed:', err);
+	    process.exit(1);
+	  });

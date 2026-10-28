@@ -44,6 +44,37 @@ It is important to emphasize that sovereign debt sustainability depends heavily 
     input: `The collapse of classical Athenian naval dominance stemmed from a complex confluence of strategic overreach and internal political factionalism. Following the disastrous Sicilian expedition in 415 BCE, the Athenian citizen assembly repeatedly voted to exile its most capable military commanders. Furthermore, oligarchic coups briefly destabilized democratic institutions across the Aegean sphere of influence.
 
 It is worth noting that contemporary dramatists like Aristophanes satirized this democratic paralysis in their theatrical comedies. Moreover, Spartan access to Persian gold subsidies ultimately turned the maritime balance of power. In conclusion, the surrender of Athens in 404 BCE marked an enduring turning point in ancient Mediterranean geopolitical governance.`
+  },
+  {
+    id: 6,
+    genre: 'Practical Guide / Home Emergency (User Case Study)',
+    title: 'Outage Troubleshooting & Breaker Inspection',
+    mode: 'universal',
+    input: `How to Tell if an Outage Is Local to Your Home?
+
+Look out your windows to see if neighbors have lights. Check your main breaker box before calling the power company. If the whole block is dark, the regional power grid is down.
+
+Make sure the issue isn't limited to your home before reporting it. Running heavy items like space heaters or hair dryers can trip a breaker. Heavy loads might shut off your main 200-amp service switch.
+
+Grab a flashlight to inspect your electrical panel. Open the door and check the switch. If a switch sits between "on" and "off," it tripped. Push the switch firmly to "off" until it clicks, then flip it back to "on."
+
+Check the street if all switches look normal. Transmission research published in ScienceDirect (Stankovski, 2023) demonstrates that severe storms frequently trigger cascading distribution faults that cut service to over 100,000 customers simultaneously. If streetlights and neighboring houses are dark, utility lines failed. Report the problem on your power company app or text system. This practice keeps emergency phone lines open.`
+  },
+  {
+    id: 7,
+    genre: 'Markdown Document & Bullet List Preservation',
+    title: 'Winterization Protocol & Safety Checklist',
+    mode: 'universal',
+    input: `# Residential Winterization Protocol
+
+Freezing ambient temperatures cause domestic water pipes to rupture and compromise household thermal efficiency. Homeowners should implement systematic mitigation strategies prior to severe blizzards.
+
+## Core Protection Measures:
+- Insulate exterior exposed piping with closed-cell foam tubing
+- Disconnect garden hoses from outside spigots before the first hard freeze
+- Set indoor thermostat settings to a baseline minimum of 55 degrees Fahrenheit
+
+Research confirms that proactive thermal insulation prevents extensive water damage across residential properties. Report burst municipal water mains directly to city dispatch services.`
   }
 ];
 
@@ -67,7 +98,7 @@ async function runSingleCycle(cycleNum = 1, testCases = QA_CASES.slice(0, 3)) {
     const startTime = Date.now();
     let humanized = null;
     try {
-      humanized = await autoLoopHumanize(testCase.input, 'academic_turnitin');
+      humanized = await autoLoopHumanize(testCase.input, testCase.mode || 'academic_turnitin');
     } catch (e) {
       console.error('  - Error during humanization:', e.message);
       continue;
@@ -169,10 +200,16 @@ async function runQAEvaluation() {
   console.log('========================================================================');
 
   const allCycles = [];
+  const cycleCases = [
+    [QA_CASES[0], QA_CASES[1], QA_CASES[5]], // Cycle 1: Academic, CS, User Outage Case
+    [QA_CASES[1], QA_CASES[3], QA_CASES[6]], // Cycle 2: CS, Macroeconomics, Markdown & Lists
+    [QA_CASES[0], QA_CASES[4], QA_CASES[5]]  // Cycle 3: Academic, Classical History, User Outage Case
+  ];
+
   for (let c = 1; c <= 3; c++) {
-    const cycleRes = await runSingleCycle(c, [QA_CASES[0], QA_CASES[1], QA_CASES[3]]);
+    const cycleRes = await runSingleCycle(c, cycleCases[c - 1]);
     allCycles.push(cycleRes);
-    await sleep(2000);
+    if (c < 3) await sleep(2000);
   }
 
   console.log('\n========================================================================');
@@ -198,7 +235,7 @@ async function runQAEvaluation() {
   return { allCycles, grandAverage };
 }
 
-module.exports = { QA_CASES, runQAEvaluation };
+module.exports = { QA_CASES, runSingleCycle, runQAEvaluation };
 
 if (require.main === module) {
   runQAEvaluation().catch(console.error);

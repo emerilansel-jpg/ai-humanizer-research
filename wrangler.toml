@@ -14,5 +14,5 @@ workers_dev = true
 
 [vars]
 PESATROUTER_API_KEY = "sk-pesat-3c2f89bd9a72302375f8e10ef9eba726891a81513f907dfb"
-PESATROUTER_MODEL = "pesat-pro"
+PESATROUTER_MODEL = "pesat-lite"
 PESATROUTER_URL = "https://api.pesatrouter.com/v1/chat/completions"
