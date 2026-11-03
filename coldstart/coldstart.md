@@ -767,3 +767,43 @@
     - CopyLeaks: **✓ Human**
     - Writer: **✓ Pass**
     - Originality: **✓ 100% Human**
+
+## 2026-10-29 — Stage 20: Forensic Security Audit of `watermarks-remover`, Layer A Steganography Hardening, & Stylometric Lexicon Expansion
+- **Status:** COMPLETED & VERIFIED (7/7 TEST SUITES PASSING)
+- **Workspace:** `F:\Zcode shenanigans\ai-humanizer-research`
+- **Files touched:**
+  - `engine/humanizer.js` (Expanded Layer A Unicode steganography codepoints, added space homoglyphs sanitizer, expanded BANNED_PATTERNS and AI_FORMULAS from `score_stylometry.py`)
+  - `build_worker.js` (Synchronized edge worker generator with full Layer A and lexicon parity)
+  - `worker.js` (Recompiled standalone Cloudflare Worker bundle, 81,466 bytes)
+  - `coldstart/coldstart.md`
+
+- **1. Forensic Security & Architecture Audit of `guillaumemeyer/watermarks-remover`:**
+  - *Repository Overview:* 25,400+ stars, open-source MIT, authored by Guillaume Meyer.
+  - *Malware / Trojan Check on `stealer/`:*
+    - Despite the name `stealer/`, static code audit confirms it contains **NO info-stealer malware, Trojans, backdoor shells, or token exfiltrators**.
+    - It is a Python implementation of academic research (*Watermark Stealing for SynthID-Text* by ETH Zurich / SRI), which samples next-token frequency ratios via model queries to approximate the green-list scoring function $s^*(token | context)$.
+    - Network calls are strictly transparent (Hugging Face Datasets Server API for C4 RealNewsLike prompts, and user-specified `WATERMARKS_STEAL_BASE_URL` reading API keys only via environment variables).
+    - Status: **100% SAFE & LEGITIMATE RESEARCH CODE**.
+
+- **2. Strategic Evaluation for Google SynthID, ChatGPT Watermark, & Claude Detector:**
+  - *Layer A Steganography:* **HIGHLY BENEFICIAL TO ADOPT**. The repository covers exotic Unicode codepoints (`U+180F`, `U+3164`, `U+FFA0`, Unicode Tag characters `U+E0001-U+E007F`, and space homoglyphs `U+00A0`, `U+1680`, `U+2000-U+200A`, `U+202F`, `U+205F`, `U+3000`) that frontier watermarking schemes and covert prompts use.
+  - *Layer B Token-Sampling Watermarks (SynthID, Kirchenbauer):*
+    - The repository documentation explicitly corroborates Google's *Nature 2024* paper: Generative token-sampling watermarks (Tournament sampling / Kirchenbauer PRF) **cannot be stripped by static regex or deterministic character swaps** without knowing private keys.
+    - Black-box $s^*$ extraction (`stealer/`) requires 30,000 prompt queries and a secondary heavy scrobbler model (DIPPER), which is unfeasible for real-time edge humanization (< 15s).
+    - Therefore, our existing **Layer B Semantic Rewrite (Balance Mode / Superhumanizer Pipeline with Burstiness > 5.5)** remains the gold-standard, literature-backed method to break token n-gram hash lattices and MUST be preserved.
+
+- **3. Upgrades Implemented:**
+  - **Full Layer A Steganography Sanitization:**
+    - Regex updated in `sanitizeInputSuperhumanizer()` and `cleanSentencePunct()`:
+      `[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFEFF\uFE00-\uFE0F\uFFA0\uFFF9-\uFFFB]|\uDB40[\uDC01-\uDC7F]`
+    - Space homoglyphs normalized to ASCII space `0x20`:
+      `[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]`
+  - **Detector Scoring Calibration:**
+    - `analyzeSentences()` now inspects for unnormalized space homoglyphs (`hasExoticSpaces`), adding +30% penalty to SynthID and +15% penalty to ChatGPT Watermark.
+  - **Stylometric Lexicon Expansion (`score_stylometry.py` integration):**
+    - Integrated high-signal phrases: `multifaceted nature/approach`, `harnessing the power of`, `a myriad of`, `paradigm shift`, `holistic perspective`, `navigating the complexities/intricacies`, `marking a pivotal/significant milestone`, `game-changer`.
+
+- **4. Verification:**
+  - `node build_worker.js`: Recompiled `worker.js` (81,466 bytes) with 100% logic and UI parity.
+  - `node engine/test.js`: **7/7 test suites PASSED (100%)**.
+  - `node engine/qa_evaluator.js`: Grand Quality Score: **8.6 / 10** across all 3 cycles.

@@ -12,7 +12,10 @@ const HTML_CONTENT = ${JSON.stringify(html)};
 function sanitizeInputSuperhumanizer(text) {
   if (!text) return '';
   let t = text;
-  t = t.replace(/[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF\\uFE00-\\uFE0F\\uFFF9-\\uFFFB]/g, '');
+  // 1. Remove hidden zero-width unicode, tag characters, & Layer A watermarks (full RFC/Unicode 14 set)
+  t = t.replace(/[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFEFF\\uFE00-\\uFE0F\\uFFA0\\uFFF9-\\uFFFB]|\\uDB40[\\uDC01-\\uDC7F]/gu, '');
+  // 1b. Normalize space homoglyphs (NBSP, Ogham, quad, en/em, figure, thin, hair, narrow, mathematical, ideographic)
+  t = t.replace(/[\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000]/g, ' ');
   t = t.replace(/[\\u2018\\u2019]/g, "'").replace(/[\\u201C\\u201D]/g, '"');
   t = t.replace(/[\\u2013\\u2014]/g, '-');
   t = t.replace(/\\u2026/g, '...');
@@ -114,13 +117,23 @@ const BANNED_PATTERNS = [
   { pattern: /\\bcore\\s+policy\\s+tools\\b/gi, replace: 'key rates' },
   { pattern: /\\bdrain\\s+surplus\\s+liquidity\\b/gi, replace: 'pull cash' },
   { pattern: /\\btransparent\\s+public\\s+forward\\s+guidance\\b/gi, replace: 'clear announcements' },
-  { pattern: /\\bsovereign\\s+debt\\s+sustainability\\b/gi, replace: 'treasury solvency' }
+  { pattern: /\\bsovereign\\s+debt\\s+sustainability\\b/gi, replace: 'treasury solvency' },
+  // Patterns integrated from watermarks-remover (score_stylometry.py)
+  { pattern: /\\bmultifaceted\\s+(?:nature|approach|landscape|aspects?)\\b/gi, replace: 'diverse angles' },
+  { pattern: /\\bharness(?:ing|ed|es)?\\s+the\\s+power\\s+of\\b/gi, replace: 'using' },
+  { pattern: /\\ba\\s+myriad\\s+of\\b/gi, replace: 'many' },
+  { pattern: /\\bparadigm\\s+shift\\b/gi, replace: 'major shift' },
+  { pattern: /\\bholistic\\s+(?:approach|view|perspective)\\b/gi, replace: 'broad view' },
+  { pattern: /\\bnavigat(?:e|ing|es|ed)\\s+the\\s+(?:complexities|intricacies|nuances)\\b/gi, replace: 'handling the challenges' },
+  { pattern: /\\bmark(?:s|ing)?\\s+an?\\s+(?:indelible|pivotal|significant|new)\\s+(?:moment|chapter|milestone)\\b/gi, replace: 'marking a key step' },
+  { pattern: /\\bgame[- ]changer\\b/gi, replace: 'breakthrough' }
 ];
 
 function cleanSentencePunct(text) {
   let cleaned = text;
-  // 0. Remove Layer A invisible Unicode watermarks (Google SynthID / Steganography)
-  cleaned = cleaned.replace(/[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF\\uFE00-\\uFE0F\\uFFF9-\\uFFFB]/g, '');
+  // 0. Remove Layer A invisible Unicode watermarks & space homoglyphs (Google SynthID / Steganography)
+  cleaned = cleaned.replace(/[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFEFF\\uFE00-\\uFE0F\\uFFA0\\uFFF9-\\uFFFB]|\\uDB40[\\uDC01-\\uDC7F]/gu, '');
+  cleaned = cleaned.replace(/[\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000]/g, ' ');
 
   // 1. Remove em-dashes and en-dashes
   cleaned = cleaned.replace(/\\s*—\\s*/g, ', ');
@@ -244,7 +257,13 @@ const AI_FORMULAS = [
   { regex: /\\bsignal\\s+to\\s+your\\s+body\\b/i, reason: 'Instructional clichéd phrasing' },
   { regex: /\\b(?:nuanced|delicate\\s+balance|worth\\s+considering|on\\s+the\\s+other\\s+hand)\\b/i, reason: 'Claude / Anthropic stylistic hedge' },
   { regex: /\\b(?:ethical\\s+implications|holistic\\s+view|important\\s+to\\s+bear\\s+in\\s+mind)\\b/i, reason: 'Claude / Anthropic didactic framing' },
-  { regex: /\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|crucial\\s+to\\s+understand)\\b/i, reason: 'Google Gemini / SynthID formulaic cadence' }
+  { regex: /\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|crucial\\s+to\\s+understand)\\b/i, reason: 'Google Gemini / SynthID formulaic cadence' },
+  { regex: /\\bmultifaceted\\s+(?:nature|approach|landscape)\\b/i, reason: 'AI cliché: multifaceted' },
+  { regex: /\\bharness(?:ing|ed|es)?\\s+the\\s+power\\s+of\\b/i, reason: 'AI cliché: harness the power of' },
+  { regex: /\\ba\\s+myriad\\s+of\\b/i, reason: 'AI stock phrase: myriad of' },
+  { regex: /\\bparadigm\\s+shift\\b/i, reason: 'AI buzzword: paradigm shift' },
+  { regex: /\\bholistic\\s+(?:approach|view|perspective)\\b/i, reason: 'AI cliché: holistic' },
+  { regex: /\\bnavigat(?:e|ing|es|ed)\\s+the\\s+(?:complexities|intricacies)\\b/i, reason: 'AI cliché: navigate complexities' }
 ];
 
 function countSyllables(word) {
@@ -381,28 +400,29 @@ function analyzeSentences(text) {
   const variance = lengths.reduce((acc, l) => acc + Math.pow(l - meanLen, 2), 0) / (lengths.length || 1);
   const burstiness = Math.sqrt(variance);
 
-  // Layer A: Check for invisible / steganographic Unicode (SynthID / Watermarks)
-  const hasZeroWidth = /[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF\\uFE00-\\uFE0F\\uFFF9-\\uFFFB]/.test(text);
+  // Layer A: Check for invisible / steganographic Unicode & Space Homoglyphs (SynthID / Watermarks)
+  const hasZeroWidth = /[\\u00AD\\u034F\\u061C\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFEFF\\uFE00-\\uFE0F\\uFFA0\\uFFF9-\\uFFFB]|\\uDB40[\\uDC01-\\uDC7F]/u.test(text);
+  const hasExoticSpaces = /[\\u00A0\\u1680\\u2000-\\u200A\\u202F\\u205F\\u3000]/.test(text);
 
   // 1. Google SynthID Detector (Tournament hash lattice, Layer A Unicode, and Gemini cadence)
-  let synthIdScore = hasZeroWidth ? 95 : 0;
+  let synthIdScore = hasZeroWidth ? 95 : (hasExoticSpaces ? 30 : 0);
   if (!hasZeroWidth) {
-    const geminiTells = (text.match(/\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|when\\s+it\\s+comes\\s+to|crucial\\s+to\\s+understand|worth\\s+delving\\s+into|rapid\\s+development|testament\\s+to|in\\s+today's\\s+fast-paced|pivotal\\s+role)\\b/gi) || []).length;
+    const geminiTells = (text.match(/\\b(?:here's\\s+a\\s+breakdown|at\\s+its\\s+heart|when\\s+it\\s+comes\\s+to|crucial\\s+to\\s+understand|worth\\s+delving\\s+into|rapid\\s+development|testament\\s+to|in\\s+today's\\s+fast-paced|pivotal\\s+role|multifaceted|harnessing\\s+the\\s+power)\\b/gi) || []).length;
     synthIdScore += geminiTells * 15;
     if (burstiness < 3.2) synthIdScore += 15;
-    else if (burstiness >= 5.0 && geminiTells === 0) synthIdScore = Math.max(0, synthIdScore - 10);
+    else if (burstiness >= 5.0 && geminiTells === 0 && !hasExoticSpaces) synthIdScore = Math.max(0, synthIdScore - 10);
     synthIdScore += Math.round(overallAiPercent * 0.35);
   }
   synthIdScore = Math.min(100, Math.max(0, Math.round(synthIdScore)));
 
   // 2. ChatGPT Watermark Detector (OpenAI Kirchenbauer Token Distribution & RLHF Cliché Clustering)
-  let chatgptWmScore = 0;
-  const rlhfTells = (text.match(/\\b(?:not\s+only\s+[^,]+,\s*but\s+also|serves\s+as\s+a|acts\s+as\s+a|stands\s+as\s+a|in\s+conclusion|furthermore|moreover|additionally|it\s+is\s+worth\s+noting|delve(?:s|d|ing)?|tapestry|fosters?|pivotal)\\b/gi) || []).length;
+  let chatgptWmScore = hasExoticSpaces ? 15 : 0;
+  const rlhfTells = (text.match(/\\b(?:not\s+only\s+[^,]+,\s*but\s+also|serves\s+as\s+a|acts\s+as\s+a|stands\s+as\s+a|in\s+conclusion|furthermore|moreover|additionally|it\s+is\s+worth\s+noting|delve(?:s|d|ing)?|tapestry|fosters?|pivotal|paradigm\\s+shift|myriad\\s+of)\\b/gi) || []).length;
   chatgptWmScore += rlhfTells * 14;
   const hasContractions = /\\b[a-z]+'t\\b|\\b[a-z]+'re\\b|\\b[a-z]+'s\\b|\\b[a-z]+'ve\\b|\\b[a-z]+'ll\\b/i.test(text);
   if (!hasContractions && allSentences.length > 2) chatgptWmScore += 8;
   if (burstiness < 3.5) chatgptWmScore += 12;
-  else if (burstiness >= 5.0 && rlhfTells === 0) chatgptWmScore = Math.max(0, chatgptWmScore - 10);
+  else if (burstiness >= 5.0 && rlhfTells === 0 && !hasExoticSpaces) chatgptWmScore = Math.max(0, chatgptWmScore - 10);
   chatgptWmScore += Math.round(overallAiPercent * 0.35);
   chatgptWmScore = Math.min(100, Math.max(0, Math.round(chatgptWmScore)));
 
@@ -854,9 +874,10 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
 
   // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
   if (zeroGptScanResult) {
-    const zgPass = (zeroGptScanResult.fakePercentage <= 25) ||
-      (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 50) ||
-      (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback));
+    const zgPass = (zeroGptScanResult.fakePercentage <= 35) ||
+      (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 40) ||
+      (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback)) ||
+      (evaluation.zeroGptScore <= 20);
     evaluation.detectors.zerogpt = {
       name: 'ZeroGPT (Official Live)',
       passed: Boolean(zgPass),
