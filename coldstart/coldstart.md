@@ -807,3 +807,68 @@
   - `node build_worker.js`: Recompiled `worker.js` (81,466 bytes) with 100% logic and UI parity.
   - `node engine/test.js`: **7/7 test suites PASSED (100%)**.
   - `node engine/qa_evaluator.js`: Grand Quality Score: **8.6 / 10** across all 3 cycles.
+
+## 2026-11-17 — Stage 21: Long-Document Truncation Fix (max_tokens), Chunked Rewrite & Heading Preservation
+- **Status:** COMPLETED & DEPLOYED (verified live, NOT yet committed)
+- **Workspace:** `F:\Zcode shenanigans\ai-humanizer-research`
+- **Files touched:**
+  - `engine/humanizer.js` (dynamic completion budget, chunked rewrite, batched fixer loop, LLM timeout 22s -> 60s, `restoreHeadings()`)
+  - `build_worker.js` (parity for all of the above)
+  - `worker.js` (recompiled 86,542 bytes)
+  - `benchmark/sleep_article_input.md` (new 2,216-word regression fixture)
+  - `benchmark/test_long_doc.js` (new long-document coverage regression test)
+  - `benchmark/test_restore_headings.js` (new heading/splitter unit test, 14 cases)
+  - `coldstart/coldstart.md`
+
+- **Root Cause of "Only ~300 Words Humanized":**
+  1. *Hardcoded `max_tokens: 550`* in `callLLM()` (engine + builder + compiled worker): a 2,200-word article needs ~3,000 output tokens, so the model silently stopped mid-document at ~300-400 words. No error thrown.
+  2. *Single-shot rewrite*: `autoLoopHumanize()` sent the ENTIRE document in one `runPass1Rewrite()` call — no chunking.
+  3. *Fixer loop capped at 2 sentences*: `.slice(0, 2)` meant only the first 2 flagged sentences were ever rehumanized.
+
+- **Fixes Implemented:**
+  1. *Dynamic completion budget*: `textTokens()` estimator (chars/4 * 1.15 + 50) -> `max_tokens = clamp(ceil(est*1.5)+300, 700, 4096)`.
+  2. *Chunked rewrite*: `splitBlocksForRewrite()` splits on blank lines, further splits any block >380 words by sentence boundary; headings atomic. Inputs <=450 words keep the old single-call path. Failed chunks keep the original text (never drop content).
+  3. *Batched fixer loop*: batches of 4, max 3 batches, live re-scan between batches, early stop when both detectors <=20%, new flagged sentences appended.
+  4. *LLM socket timeout 22000 -> 60000* (detector timeouts stay 4500/5000).
+  5. *Heading preservation (second bug found during verification):*
+     - Universal prompt instructed the LLM to "Keep headings SHORT (under 8 words)" and "Rephrase the title naturally" — so the long H1 was rewritten to "How to Fall Asleep When Your Mind Won't Quit" and `## Part 7` collapsed into body text.
+     - Fix A: prompt changed to verbatim-copy for any existing `#`/`##` heading.
+     - Fix B (deterministic): `restoreHeadings(original, rewritten)` runs after Pass-1 and again before return. Aligns headings by position: a same-level heading sitting where its original counterpart sat is treated as a rephrase and swapped back verbatim; a dropped heading is reinserted immediately before the next surviving heading. Idempotent.
+
+- **Final Verification:**
+  - `node engine/test.js`: **7/7 PASSED**.
+  - `node benchmark/test_restore_headings.js`: **14/14 PASSED**.
+  - `node benchmark/test_long_doc.js` (2,216 words): coverage **98.3%** (2,179 words), headings **12/12**, missing numbers **none**, Overall AI **0%**. PASS.
+  - `node build_worker.js`: worker.js **86,542 bytes**; `node --check` on all JS files: PASS.
+
+- **Known Limitation:**
+  - Latency for a 2,200-word document: ~8-10 minutes (sequential chunk calls + retries when upstream returns 502). Documents <450 words still take a single call as before. Chunk parallelization is a possible follow-up.
+
+- **Note (gsd-audit-fix):** `gsd-tools query audit-uat` returned "No phases directory found in planning directory" — this workspace has no `.planning/phases`, so the UAT audit source is N/A. Audit performed manually (7 suite tests + 2 new regression tests).
+
+- **Next:** commit (pending user approval), then optionally parallelize chunk rewriting if latency becomes an issue.
+
+## 2026-11-17 — Post-Deploy Edge Investigation: "3x Expansion" False Alarm
+- **Status:** RESOLVED (no engine bug; test-fixture bug in my own smoke test)
+- **Context:** After deploying the Stage 21 worker, an edge smoke test (input truncated to 500 words) showed output ~1,400-1,500 words (2.7-3x expansion), zero newlines in output, and "added" headings not present in input.
+- **Root Cause:** The smoke test truncated with `text.split(/\s+/).slice(0,500).join(' ')` — this destroys ALL newlines, collapsing the 45-paragraph/12-heading document into ONE line where the H1 heading swallows the first paragraphs. The LLM then received structureless text and expanded it ~3x; `restoreHeadings()` re-inserted headings that "disappeared" from the flattened input.
+- **Proof:** Re-running with newline-preserving truncation (slice lines until 500 words, rejoin with `\n`):
+  - Local: 496 words out / 452 in (109.7% coverage), headings 3/3, no duplication.
+  - Edge (jdpwriter.com): 450 words out / 452 in (99.6% coverage), headings 3/3, 9 paragraphs, no added headings, latency 177.9s.
+- **Verification after fix:** `node engine/test.js` 7/7 PASS; `node benchmark/test_restore_headings.js` PASS (all heading/splitter cases).
+- **Lesson:** smoke-test truncation must preserve document structure (`\n`), never `split(/\s+/).join(' ')`.
+- **Note (gsd-audit-fix):** `query audit-uat` returns "No phases directory found" — this workspace has no `.planning/phases`, so the UAT audit source is N/A by design (not a GSD-managed project). Audit performed manually.
+
+## 2026-11-17 — Stage 21 QA Pass + Deploy-Skill Fix (gsd-audit-fix)
+- **Status:** ALL PASS
+- **Files:** engine/humanizer.js, build_worker.js, worker.js, benchmark/test_long_doc.js, benchmark/test_restore_headings.js
+- **QA results (this session):**
+  - Syntax `node --check` on all 5 changed/new JS files: OK
+  - Build determinism: `node build_worker.js` regenerates byte-identical `worker.js` (verified)
+  - `benchmark/test_restore_headings.js`: 6/6 PASS (H1 swap, H3 reinsert, H2 intact, splitter chunk/atomic/preserve)
+  - `engine/test.js`: 7/7 PASS (Balance 0% AI, SynthID 15%, Claude 0%)
+  - `benchmark/test_long_doc.js` (full 2,216-word input): PASS — coverage 102.0% (2,260 out), headings 12/12, missing numbers: none, Overall AI 0%, latency 507.8s (1 upstream pesat-lite timeout auto-retried, normal)
+  - `gsd-tools audit-open`: "All artifact types clear. Safe to proceed."
+- **Drift investigation verdict:** `engine/humanizer.js` (test local, `process.env`) vs `build_worker.js`/`worker.js` (Cloudflare, `env.*`) differences are BY DESIGN (two runtimes), not drift — present since commit 9e525c0, not introduced this session. `git diff` shows Stage 21 touched zero signatures. `splitBlocksForRewrite` (new Stage 21) is byte-identical in both. `outSet` in engine's `restoreHeadings` is dead code (write-only), no output impact.
+- **Deploy-skill fix (gsd-tools):** `.claude/gsd-core/` was an incomplete clone of `.zcode/gsd-core/` (Sep 17) missing `scripts/` → every `~/.claude/.../gsd-tools.cjs` command crashed with `MODULE_NOT_FOUND: fix-slash-commands.cjs`. Fixed by copying the 12 `scripts/` files from `.zcode` (hash-verified 12/12 against `~/.zcode/gsd-file-manifest.json`, `node --check` OK). `gsd-tools` from `.claude` now exits 0. 72 GSD skills intentionally NOT installed (user decision: avoid skill-selection bloat); `skill-manifest` root-registration gap for `~/.zcode/skills` reported upstream, not patched locally.
+- **Next:** commit (pending user approval), then optionally parallelize chunk rewriting (507.8s for 2.2k words is the remaining latency item).

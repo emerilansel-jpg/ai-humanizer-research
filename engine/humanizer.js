@@ -591,6 +591,14 @@ function getCredentials() {
   };
 }
 
+// Rough token estimator: ~4 chars/token for prose, +15% headroom.
+// Long inputs must get a large enough completion budget or the model
+// silently stops mid-document (max_tokens was hardcoded to 550).
+function textTokens(...parts) {
+  const chars = parts.join(' ').length;
+  return Math.ceil(chars / 4 * 1.15) + 50;
+}
+
 async function callLLM(systemPrompt, userPrompt, temperature = 0.82, freqPenalty = 0.22) {
   const creds = getCredentials();
   // pesat-lite and pesat-pro: ultra-fast (5-8s), high reliability, zero hang-ups
@@ -609,7 +617,10 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.82, freqPenalty
           temperature,
           frequency_penalty: freqPenalty,
           presence_penalty: 0.15,
-          max_tokens: 550
+          max_tokens: Math.max(
+            700,
+            Math.min(4096, Math.ceil(textTokens(systemPrompt, userPrompt) * 1.5) + 300)
+          )
         });
 
         return await new Promise((resolve, reject) => {
@@ -625,7 +636,7 @@ async function callLLM(systemPrompt, userPrompt, temperature = 0.82, freqPenalty
             },
             servername: url.hostname,
             lookup: safeLookup('104.21.80.151'),
-            timeout: 22000
+            timeout: 60000
           }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
@@ -778,7 +789,7 @@ Respond ONLY with the rewritten text:`;
     userPrompt = `Rewrite the text below using the Superhumanizer Syntactic Blueprint.
 
 EXACT DOCUMENT FORMAT & HEADING PRESERVATION:
-- Headings & Titles: Keep headings SHORT (under 8 words). Never put full paragraphs or multiple sentences into a heading (#, ##, or standalone title).
+- Headings & Titles: NEVER rephrase, shorten, or rewrite a heading that already starts with # or ##. Copy it verbatim, hash prefix included. Keep the full original wording and word count, even if it runs long. Only forbid putting a full paragraph or multiple sentences INTO a heading.
 - If the text begins with a title or question, keep it as a standalone heading on line 1 followed by a blank line (\\n\\n). Rephrase the title naturally (e.g. 'How to Know If an Outage Is at My House?').
 - If markdown headings (#, ##) are present, strictly preserve the hash prefix on its own line followed by \\n\\n.
 - Bullet points (- / * / 1.) must be preserved line by line with their markers.
@@ -936,18 +947,124 @@ function scanTurnitinLive(text) {
   });
 }
 
+// Split on blank lines. Blocks whose text (excluding short headings) is
+// still too long get further split so a single LLM call never has to
+// generate the whole document.
+function splitBlocksForRewrite(blocks, maxWords = 380) {
+  const out = [];
+  for (const b of blocks) {
+    const words = b.trim().split(/\s+/).filter(Boolean).length;
+    if (words <= maxWords || /^#{1,6}\s/.test(b.trim())) { out.push(b); continue; }
+    const paras = b.split(/\n\s*\n/);
+    if (paras.length > 1) {
+      out.push(...splitBlocksForRewrite(paras, maxWords));
+      continue;
+    }
+    const sentences = b.match(/[^.!?]+[.!?]*/g) || [b];
+    let cur = '';
+    for (const s of sentences) {
+      const cand = (cur + ' ' + s).trim();
+      if (cur && cand.split(/\s+/).length > maxWords) { out.push(cur.trim()); cur = s; }
+      else cur = cand;
+    }
+    if (cur.trim()) out.push(cur.trim());
+  }
+  return out;
+}
+
+// Restore markdown headings that the LLM dropped, shortened, or rephrased.
+// Headings are structural; the model must never get a say in their wording.
+function restoreHeadings(original, rewritten) {
+  const origHeads = (original.match(/^#{1,6}\s.+$/gm) || []).map(h => h.trim());
+  if (!origHeads.length) return rewritten;
+  const outHeads = (rewritten.match(/^#{1,6}\s.+$/gm) || []).map(h => h.trim());
+  const outSet = new Set(outHeads);
+
+  // Align by position: the model rewrites headings in order, so an intact
+  // heading at output position i corresponds to original position i only
+  // when every earlier heading survived. A heading is a "rephrase" only if
+  // it sits where its original counterpart sat.
+  const replaced = [];   // { from, to }
+  const missing = [];    // headings to reinsert
+  let oi = 0;
+  for (let i = 0; i < outHeads.length && oi < origHeads.length; ) {
+    if (outHeads[i] === origHeads[oi]) { oi++; i++; continue; }
+    // Same level at the same position -> rephrase, swap back verbatim.
+    if (outHeads[i].match(/^#+/)[0] === origHeads[oi].match(/^#+/)[0]) {
+      replaced.push({ from: outHeads[i], to: origHeads[oi] });
+      oi++; i++;
+      continue;
+    }
+    // Original heading was dropped here; reinsert it and keep scanning.
+    missing.push(origHeads[oi]);
+    oi++;
+  }
+  while (oi < origHeads.length) { missing.push(origHeads[oi]); oi++; }
+
+  for (const { from, to } of replaced) {
+    const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rewritten = rewritten.replace(new RegExp('^' + esc + '$', 'm'), to);
+    outSet.delete(from);
+    outSet.add(to);
+  }
+
+  if (missing.length === 0) return rewritten;
+
+  let outLines = rewritten.split(/\r?\n/);
+  const origBlocks = original.split(/\r?\n\s*\r?\n/).filter(b => b.trim());
+  for (const head of missing) {
+    const idx = origBlocks.findIndex(b => b.trim().split(/\r?\n/)[0].trim() === head);
+    if (idx === -1) continue;
+    const nextHeading = origBlocks.slice(idx + 1)
+      .map(b => b.trim().split(/\r?\n/)[0].trim())
+      .find(l => /^#{1,6}\s/.test(l));
+    let insertAt = -1;
+    if (nextHeading) {
+      const ni = outLines.findIndex(l => l.trim() === nextHeading);
+      if (ni !== -1) insertAt = ni;
+    }
+    if (insertAt === -1) {
+      while (outLines.length && !outLines[outLines.length - 1].trim()) outLines.pop();
+      insertAt = outLines.length;
+    }
+    outLines.splice(insertAt, 0, '', head, '');
+  }
+  return outLines.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
 // High-Speed Production Auto-Loop Humanizer
 async function autoLoopHumanize(rawInput, mode = 'universal') {
   // 1. Superhumanizer Pre-sanitization (Unicode, smart quotes, dashes, whitespace)
   const text = sanitizeInputSuperhumanizer(rawInput);
 
-  // Pass 1: High-Speed Mode-Adaptive Neural Reconstruction
-  const rawPass1 = await runPass1Rewrite(text, mode);
+  // 2. Rewrite in bounded chunks so long documents are never truncated.
+  //    Small inputs keep the old single-call path (no behavior change).
+  const rawBlocks = text.split(/\r?\n\s*\r?\n/).filter(p => p.trim().length > 0);
+  const inputWords = text.split(/\s+/).filter(Boolean).length;
+  let rawPass1;
+  if (inputWords <= 450) {
+    rawPass1 = await runPass1Rewrite(text, mode);
+  } else {
+    const chunks = splitBlocksForRewrite(rawBlocks);
+    const rewrittenChunks = [];
+    for (const chunk of chunks) {
+      try {
+        rewrittenChunks.push(cleanFormattingOnly(await runPass1Rewrite(chunk, mode)));
+      } catch (err) {
+        // Keep the original block rather than dropping content.
+        console.warn('[autoLoop] chunk rewrite failed, keeping original: ' + err.message);
+        rewrittenChunks.push(chunk);
+      }
+    }
+    rawPass1 = rewrittenChunks.join('\n\n');
+  }
 
   // Fast Formatting & Punctuation Sanitize (Strictly Preserves \n\n, Headings, Lists)
   let currentText = cleanFormattingOnly(rawPass1);
   currentText = mechanicalClean(currentText).cleaned;
   currentText = cleanFormattingOnly(currentText);
+  // The LLM must never alter or drop the source headings; force them back.
+  currentText = restoreHeadings(text, currentText);
 
   let retries = 0;
   let liveScanResult = null;
@@ -980,11 +1097,20 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
       zeroGptFlagged = zeroGptScanResult.h.filter(s => typeof s === 'string' && s.trim().length > 10);
     }
 
-    const allFlagged = Array.from(new Set([...turnitinFlagged, ...zeroGptFlagged])).slice(0, 2);
+    const allFlagged = Array.from(new Set([...turnitinFlagged, ...zeroGptFlagged]));
 
-    if (allFlagged.length > 0) {
-      retries += allFlagged.length;
-      const fixPromises = allFlagged.map(async (sentence) => {
+    // Fix flagged sentences in batches of 4 (max 3 batches) so long documents
+    // don't get stuck with only the first 2 sentences cleaned.
+    const BATCH_SIZE = 4;
+    const MAX_BATCHES = 3;
+    const batches = [];
+    for (let i = 0; i < allFlagged.length && batches.length < MAX_BATCHES; i += BATCH_SIZE) {
+      batches.push(allFlagged.slice(i, i + BATCH_SIZE));
+    }
+
+    for (const batch of batches) {
+      retries += batch.length;
+      const fixPromises = batch.map(async (sentence) => {
         try {
           const rawFixed = await rehumanizeSentence(sentence, '', '', mode);
           const fixed = rawFixed.replace(/^["'\s]+|["'\s]+$/g, '').split('\n').filter(l => l.trim().length > 0).pop()?.trim() || '';
@@ -1003,7 +1129,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
       currentText = cleanFormattingOnly(currentText);
       currentText = mechanicalClean(currentText).cleaned;
 
-      // Rescan with fast timeout
+      // Re-scan after each batch to refresh the flagged list for the next one.
       try {
         const [tFinal, zFinal] = await Promise.allSettled([
           scanTurnitinLive(currentText),
@@ -1012,6 +1138,23 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
         if (tFinal.status === 'fulfilled' && tFinal.value) liveScanResult = tFinal.value;
         if (zFinal.status === 'fulfilled' && zFinal.value) zeroGptScanResult = zFinal.value;
       } catch (e) {}
+
+      const tRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
+      const zRate = zeroGptScanResult?.fakePercentage || 0;
+      if (tRate <= 20 && zRate <= 20) break;
+
+      const nextTurnitin = (liveScanResult?.class === 'ai' || tRate > 20)
+        ? (liveScanResult.sentences || [])
+            .filter(s => (s.generated_prob > 0.18 || s.class === 'ai') && s.sentence.trim().length > 10)
+            .map(s => s.sentence)
+        : [];
+      const nextZeroGpt = (zRate > 20 && Array.isArray(zeroGptScanResult.h))
+        ? zeroGptScanResult.h.filter(s => typeof s === 'string' && s.trim().length > 10)
+        : [];
+      const nextFlagged = Array.from(new Set([...nextTurnitin, ...nextZeroGpt]));
+      const remaining = nextFlagged.filter(s => !allFlagged.includes(s));
+      if (remaining.length === 0) break;
+      allFlagged.push(...remaining);
     }
   }
 
@@ -1045,6 +1188,9 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
     };
   }
 
+  // Final safety net: headings restored after every rewrite step.
+  currentText = restoreHeadings(text, currentText);
+
   return {
     rewritten: currentText,
     metrics,
@@ -1071,5 +1217,7 @@ module.exports = {
   scanTurnitinLive,
   scanZeroGptLive,
   replaceSentenceFuzzy,
+  restoreHeadings,
+  splitBlocksForRewrite,
   autoLoopHumanize
 };
