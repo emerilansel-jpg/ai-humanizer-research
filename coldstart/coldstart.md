@@ -885,6 +885,6 @@
   - `node benchmark/test_restore_headings.js`: **14/14 PASS**.
   - `node build_worker.js`: regenerates `worker.js` byte-identical (87,620 bytes); `node --check` OK.
   - `npx wrangler whoami`: authenticated (k2.read/k2.write).
-- **Deploy:** `wrangler deploy` pending user confirmation (production edge worker).
+- **Deploy:** DONE — `wrangler deploy` succeeded, Version ID `944bc908-81b5-4e6d-af07-eca99ec9e177`, live at `https://ai-humanizer.emerilansel.workers.dev` and `jdpwriter.com/humanizer*`.
 - **Known issue (pre-existing, not introduced):** `benchmark/_diff_functions.js` reports DIFF on `sanitizeInputSuperhumanizer`, `cleanSentencePunct`, `cleanLine`, `cleanFormattingOnly`, `splitBlocksForRewrite`, `restoreHeadings` — mostly comment wording and one real regex divergence (`achieve\.?` in engine vs `achieve\.?,?` in builder, present since `ab2afc7`). Drift verdict from QA pass still holds: runtime differences (`process.env` vs `env.*`) are by design; the `achieve` comma variant is a minor builder-only enhancement (strips trailing comma too).
 - **Next:** deploy edge worker, then decide whether to unify the `achieve` regex and commit `benchmark/_diff_functions.js`.
