@@ -872,3 +872,19 @@
 - **Drift investigation verdict:** `engine/humanizer.js` (test local, `process.env`) vs `build_worker.js`/`worker.js` (Cloudflare, `env.*`) differences are BY DESIGN (two runtimes), not drift — present since commit 9e525c0, not introduced this session. `git diff` shows Stage 21 touched zero signatures. `splitBlocksForRewrite` (new Stage 21) is byte-identical in both. `outSet` in engine's `restoreHeadings` is dead code (write-only), no output impact.
 - **Deploy-skill fix (gsd-tools):** `.claude/gsd-core/` was an incomplete clone of `.zcode/gsd-core/` (Sep 17) missing `scripts/` → every `~/.claude/.../gsd-tools.cjs` command crashed with `MODULE_NOT_FOUND: fix-slash-commands.cjs`. Fixed by copying the 12 `scripts/` files from `.zcode` (hash-verified 12/12 against `~/.zcode/gsd-file-manifest.json`, `node --check` OK). `gsd-tools` from `.claude` now exits 0. 72 GSD skills intentionally NOT installed (user decision: avoid skill-selection bloat); `skill-manifest` root-registration gap for `~/.zcode/skills` reported upstream, not patched locally.
 - **Next:** commit (pending user approval), then optionally parallelize chunk rewriting (507.8s for 2.2k words is the remaining latency item).
+
+## 2026-11-19 — Stage 21 Follow-up: Parallel Chunk Rewrite & UI Input Cleanup
+- **Status:** DONE (committed `e124f1d` + `051984c`, pushed to `origin/main`)
+- **Changes:**
+  1. *Parallel chunk rewrite:* `autoLoopHumanize()` chunk loop switched from sequential to bounded parallel (`CONCURRENCY = 3` via `Promise.all` batches). Failed chunks still keep original text. Applied identically in `engine/humanizer.js`, `build_worker.js`, and compiled `worker.js`.
+  2. *Heading dedup fix:* `restoreHeadings()` in builder/worker now filters reinsertion through `outSet`/`trulyMissing` so a heading already present verbatim in the output is never duplicated (engine's local `outSet` was removed as dead code).
+  3. *UI default input:* `engine/index.html` and compiled `worker.js` now comment out `pasteSample()` on load — input starts empty.
+  4. *New helper:* `benchmark/_diff_functions.js` (untracked) — line-by-line parity checker between `engine/humanizer.js` and `build_worker.js` shared functions (accounts for template-literal backslash escaping).
+- **QA this session:**
+  - `node engine/test.js`: **7/7 PASS** (Test 5 flaked once at 25% AI on first run, passed 0% on re-run — live-detector variance, not code).
+  - `node benchmark/test_restore_headings.js`: **14/14 PASS**.
+  - `node build_worker.js`: regenerates `worker.js` byte-identical (87,620 bytes); `node --check` OK.
+  - `npx wrangler whoami`: authenticated (k2.read/k2.write).
+- **Deploy:** `wrangler deploy` pending user confirmation (production edge worker).
+- **Known issue (pre-existing, not introduced):** `benchmark/_diff_functions.js` reports DIFF on `sanitizeInputSuperhumanizer`, `cleanSentencePunct`, `cleanLine`, `cleanFormattingOnly`, `splitBlocksForRewrite`, `restoreHeadings` — mostly comment wording and one real regex divergence (`achieve\.?` in engine vs `achieve\.?,?` in builder, present since `ab2afc7`). Drift verdict from QA pass still holds: runtime differences (`process.env` vs `env.*`) are by design; the `achieve` comma variant is a minor builder-only enhancement (strips trailing comma too).
+- **Next:** deploy edge worker, then decide whether to unify the `achieve` regex and commit `benchmark/_diff_functions.js`.
