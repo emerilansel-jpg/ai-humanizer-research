@@ -674,9 +674,9 @@ Respond ONLY with the rewritten text:`;
     userPrompt = `Rewrite the text below using the Superhumanizer Syntactic Blueprint.
 
 EXACT DOCUMENT FORMAT & HEADING PRESERVATION:
-- Headings & Titles: NEVER rephrase, shorten, or rewrite a heading that already starts with # or ##. Copy it verbatim, hash prefix included. Keep the full original wording and word count, even if it runs long. Only forbid putting a full paragraph or multiple sentences INTO a heading.
-- If the text begins with a title or question, keep it as a standalone heading on line 1 followed by a blank line (\n\n). Rephrase the title naturally (e.g. 'How to Know If an Outage Is at My House?').
-- If markdown headings (#, ##) are present, strictly preserve the hash prefix on its own line followed by \n\n.
+- Headings & Titles: NEVER rephrase, shorten, or rewrite ANY line that starts with #, ##, ###, ####, #####, or ######. Copy it verbatim, hash prefix and level included. Keep the full original wording and word count, even if it runs long. Only forbid putting a full paragraph or multiple sentences INTO a heading.
+- If the text begins with a title or question, keep it as a standalone heading on line 1 followed by a blank line (\n\n). Copy it verbatim, hash prefix included.
+- If markdown headings (# through ######) are present, strictly preserve the hash prefix and its exact level on its own line followed by \n\n. Never upgrade or downgrade a heading level (### stays ###, ## stays ##).
 - Bullet points (- / * / 1.) must be preserved line by line with their markers.
 - Paragraphs: Maintain the exact ${numParagraphs} paragraph(s) separated by blank lines (\n\n). Never collapse headings or list items into regular running paragraphs.
 
@@ -842,9 +842,18 @@ function restoreHeadings(original, rewritten) {
 
   if (missing.length === 0) return rewritten;
 
+  // A heading dropped by the model may have been replaced by a same-level
+  // heading whose text belongs to a DIFFERENT original heading (misalignment
+  // after an earlier drop). Never reinsert a heading that already exists in
+  // the output verbatim -- that would duplicate it.
+  const outSet = new Set(outHeads);
+  const trulyMissing = missing.filter(h => !outSet.has(h));
+
+  if (trulyMissing.length === 0) return rewritten;
+
   const outLines = rewritten.split(/\r?\n/);
   const origBlocks = original.split(/\r?\n\s*\r?\n/).filter(b => b.trim());
-  for (const head of missing) {
+  for (const head of trulyMissing) {
     const idx = origBlocks.findIndex(b => b.trim().split(/\r?\n/)[0].trim() === head);
     if (idx === -1) continue;
     const nextHeading = origBlocks.slice(idx + 1)
@@ -876,12 +885,21 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   } else {
     const chunks = splitBlocksForRewrite(rawBlocks);
     const rewrittenChunks = [];
-    for (const chunk of chunks) {
-      try {
-        rewrittenChunks.push(cleanFormattingOnly(await runPass1Rewrite(chunk, mode, env)));
-      } catch (err) {
-        rewrittenChunks.push(chunk);
-      }
+    // Parallel chunk rewrite (bounded concurrency): each chunk is an
+    // independent LLM call. Running them sequentially made a 2.2k-word doc
+    // take 8-10 minutes; bounded parallelism cuts that to ~2 rounds of
+    // wall-clock time without exhausting sockets (max 3 in flight).
+    const CONCURRENCY = 3;
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      const batch = chunks.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(batch.map(async (chunk) => {
+        try {
+          return cleanFormattingOnly(await runPass1Rewrite(chunk, mode, env));
+        } catch (err) {
+          return chunk;
+        }
+      }));
+      rewrittenChunks.push(...results);
     }
     rawPass1 = rewrittenChunks.join('\n\n');
   }
