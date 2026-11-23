@@ -578,6 +578,7 @@ Transform the input into natural, fluent human prose that achieves the highest p
 DOCUMENT FORMAT & HEADING PRESERVATION:
 - Preserve all titles, markdown headings (#, ##), bullet points (- / *), numbered lists, and exact paragraph breaks (\\n\\n).
 - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line (\\n\\n). Never merge headings or bullet points into regular paragraphs.
+- LANGUAGE: Output MUST be 100% English. If the input is Indonesian or mixed-language, translate to English first, then rewrite. Never leave any non-English words in the output.
 
 CORE BALANCED RULES (OPTIMIZED FOR ALL DETECTORS):
 1. DYNAMIC BURSTINESS & SENTENCE PACING (BEATS ZEROGPT & SYNTHID):
@@ -612,6 +613,7 @@ Respond ONLY with the rewritten text:`;
 DOCUMENT FORMAT PRESERVATION:
 - Preserve all titles, section headings (e.g. #, ##), bullet points (- / *), numbered lists, and blank lines (\n\n).
 - Maintain the exact ${numParagraphs} paragraph(s) separated by a blank line.
+- LANGUAGE: Output MUST be 100% English. If the input is Indonesian or mixed-language, translate to English first, then rewrite. Never leave any non-English words in the output.
 
 AUTHENTIC CADENCE FEW-SHOT BENCHMARK:
 "Most registrars traded physical filing cabinets for automated servers years ago. These background portals track degree prerequisites and audit graduation records on their own, leaving staff to handle edge cases. In the classroom, course platforms check quiz scores weekly to flag struggling students well before finals.
@@ -649,6 +651,7 @@ Respond ONLY with the rewritten text:`;
 
 DOCUMENT FORMAT PRESERVATION:
 - Preserve all titles, headings, bullet lists, and exact paragraph breaks (\n\n).
+- LANGUAGE: Output MUST be 100% English. If the input is Indonesian or mixed-language, translate to English first, then rewrite. Never leave any non-English words in the output.
 
 CRITICAL RULES FOR ZEROGPT BYPASS:
 1. BAN GENERIC CHATGPT ADVICE TEMPLATES:
@@ -679,6 +682,7 @@ EXACT DOCUMENT FORMAT & HEADING PRESERVATION:
 - If markdown headings (# through ######) are present, strictly preserve the hash prefix and its exact level on its own line followed by \n\n. Never upgrade or downgrade a heading level (### stays ###, ## stays ##).
 - Bullet points (- / * / 1.) must be preserved line by line with their markers.
 - Paragraphs: Maintain the exact ${numParagraphs} paragraph(s) separated by blank lines (\n\n). Never collapse headings or list items into regular running paragraphs.
+- LANGUAGE: Output MUST be 100% English. If the input is Indonesian or mixed-language, translate to English first, then rewrite. Never leave any non-English words in the output.
 
 SUPERHUMANIZER BLUEPRINT RULES (0% ZEROGPT & PASS TURNITIN):
 1. STRICT SENTENCE CEILING & DYNAMIC BURSTINESS:
@@ -811,29 +815,66 @@ function splitBlocksForRewrite(blocks, maxWords = 380) {
   return out;
 }
 
+// Detect non-English words that commonly leak when the input is Indonesian
+// or mixed-language. Returns the matched words (empty array = clean).
+function detectNonEnglish(text) {
+  const ID_COMMON = /\b(?:dan|yang|untuk|dengan|ini|itu|adalah|pada|dalam|akan|bisa|juga|sangat|lebih|dari|ke|di|ada|atau|ketika|saat|karena|seperti|harus|sudah|belum|banyak|sedikit|satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|tidur|malam|hari|bisa|tidak|bukan|ada|belum|sudah|akan|telah|sedang|sedang|telah|akan|bisa|harus|perlu|ingin|mau|boleh|jangan|silakan|tolong|terima|kasih|selamat|pagi|siang|sore|malam|besok|kemarin|hari|minggu|bulan|tahun|jam|menit|detik|tahu|lihat|dengar|bicara|tulis|baca|kerja|belajar|main|makan|minum|tidur|bangun|duduk|berdiri|jalan|lari|duduk|senang|sedih|marah|takut|kenyang|lapar|haus|dingin|panas|besar|kecil|panjang|pendek|tinggi|rendah|cepat|lambat|baru|lama|muda|tua|baik|jelek|benar|salah|mudah|sulit|murah|mahal|dekat|jauh|penuh|kosong|kotor|bersih|terang|gelap|keras|pelan|keras|pelan|keras|pelan)\b/gi;
+  const matches = text.match(ID_COMMON) || [];
+  return Array.from(new Set(matches.map(m => m.toLowerCase())));
+}
+
+// Structural validation: verify the rewrite preserved the source's headings
+// (count + levels) and list-item count. Returns { ok, issues[] }.
+function validateFormat(original, rewritten) {
+  const issues = [];
+  const origHeads = (original.match(/^#{1,6}\s.+$/gm) || []);
+  const outHeads = (rewritten.match(/^#{1,6}\s.+$/gm) || []);
+  if (outHeads.length < origHeads.length) {
+    issues.push('lost headings: ' + outHeads.length + '/' + origHeads.length);
+  }
+  const origLists = (original.match(/^[-*]\s|^\d+\.\s/gm) || []).length;
+  const outLists = (rewritten.match(/^[-*]\s|^\d+\.\s/gm) || []).length;
+  if (origLists > 0 && outLists < Math.floor(origLists * 0.5)) {
+    issues.push('lost list items: ' + outLists + '/' + origLists);
+  }
+  const idLeak = detectNonEnglish(rewritten);
+  if (idLeak.length > 3) {
+    issues.push('non-English words leaked: ' + idLeak.slice(0, 5).join(','));
+  }
+  return { ok: issues.length === 0, issues };
+}
+
 function restoreHeadings(original, rewritten) {
   const origHeads = (original.match(/^#{1,6}\s.+$/gm) || []).map(h => h.trim());
   if (!origHeads.length) return rewritten;
   const outHeads = (rewritten.match(/^#{1,6}\s.+$/gm) || []).map(h => h.trim());
 
-  // Align by position: the model rewrites headings in order, so an intact
-  // heading at output position i corresponds to original position i only
-  // when every earlier heading survived. A heading is a "rephrase" only if
-  // it sits where its original counterpart sat.
+  // Align headings: an output heading that exactly matches some original
+  // is intact and must never be treated as a rephrase of a DIFFERENT
+  // original (positional-only alignment misfires when a heading is dropped
+  // mid-document: out[i] looks like a rephrase of orig[i] when it is really
+  // orig[i+1] surviving while orig[i] vanished).
   const replaced = [];
   const missing = [];
-  let oi = 0;
-  for (let i = 0; i < outHeads.length && oi < origHeads.length; ) {
-    if (outHeads[i] === origHeads[oi]) { oi++; i++; continue; }
-    if (outHeads[i].match(/^#+/)[0] === origHeads[oi].match(/^#+/)[0]) {
-      replaced.push({ from: outHeads[i], to: origHeads[oi] });
-      oi++; i++;
-      continue;
-    }
-    missing.push(origHeads[oi]);
-    oi++;
+  const remaining = origHeads.slice();
+  for (const oh of outHeads) {
+    const exact = remaining.indexOf(oh);
+    if (exact !== -1) { remaining.splice(exact, 1); continue; }
+    replaced.push(oh);
   }
-  while (oi < origHeads.length) { missing.push(origHeads[oi]); oi++; }
+  const outSet = new Set(outHeads);
+  const candidates = replaced.slice();
+  replaced.length = 0;
+  for (const cand of candidates) {
+    if (outSet.has(cand) && origHeads.includes(cand)) continue;
+    const lvl = cand.match(/^#+/)[0];
+    const idx = remaining.findIndex(h => h.match(/^#+/)[0] === lvl);
+    if (idx !== -1) {
+      replaced.push({ from: cand, to: remaining[idx] });
+      remaining.splice(idx, 1);
+    }
+  }
+  for (const h of remaining) missing.push(h);
 
   for (const { from, to } of replaced) {
     const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -842,11 +883,8 @@ function restoreHeadings(original, rewritten) {
 
   if (missing.length === 0) return rewritten;
 
-  // A heading dropped by the model may have been replaced by a same-level
-  // heading whose text belongs to a DIFFERENT original heading (misalignment
-  // after an earlier drop). Never reinsert a heading that already exists in
-  // the output verbatim -- that would duplicate it.
-  const outSet = new Set(outHeads);
+  // Never reinsert a heading that already exists in the output verbatim
+  // -- that would duplicate it.
   const trulyMissing = missing.filter(h => !outSet.has(h));
 
   if (trulyMissing.length === 0) return rewritten;
@@ -893,10 +931,16 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const batch = chunks.slice(i, i + CONCURRENCY);
       const results = await Promise.all(batch.map(async (chunk) => {
+        // One retry before giving up: transient LLM/socket errors must not
+        // silently leave an unhumanized original block in the output.
         try {
           return cleanFormattingOnly(await runPass1Rewrite(chunk, mode, env));
-        } catch (err) {
-          return chunk;
+        } catch (err1) {
+          try {
+            return cleanFormattingOnly(await runPass1Rewrite(chunk, mode, env));
+          } catch (err2) {
+            return chunk;
+          }
         }
       }));
       rewrittenChunks.push(...results);
@@ -1034,12 +1078,20 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   // Final safety net: headings restored after every rewrite step.
   currentText = restoreHeadings(text, currentText);
 
+  // Structural + language validation (headings, list items, non-English leak).
+  // Informational: never rejects the rewrite, surfaces issues to the caller.
+  const formatCheck = validateFormat(text, currentText);
+  if (!formatCheck.ok) {
+    console.warn('[autoLoop] format validation issues: ' + formatCheck.issues.join('; '));
+  }
+
   return {
     rewritten: currentText,
     metrics,
     evaluation,
     fidelity,
     retryTries: retries,
+    formatIssues: formatCheck.issues,
     liveScanResult,
     zeroGptScanResult
   };

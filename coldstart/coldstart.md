@@ -888,3 +888,21 @@
 - **Deploy:** DONE — `wrangler deploy` succeeded, Version ID `944bc908-81b5-4e6d-af07-eca99ec9e177`, live at `https://ai-humanizer.emerilansel.workers.dev` and `jdpwriter.com/humanizer*`.
 - **Known issue (pre-existing, not introduced):** `benchmark/_diff_functions.js` reports DIFF on `sanitizeInputSuperhumanizer`, `cleanSentencePunct`, `cleanLine`, `cleanFormattingOnly`, `splitBlocksForRewrite`, `restoreHeadings` — mostly comment wording and one real regex divergence (`achieve\.?` in engine vs `achieve\.?,?` in builder, present since `ab2afc7`). Drift verdict from QA pass still holds: runtime differences (`process.env` vs `env.*`) are by design; the `achieve` comma variant is a minor builder-only enhancement (strips trailing comma too).
 - **Next:** deploy edge worker, then decide whether to unify the `achieve` regex and commit `benchmark/_diff_functions.js`.
+
+## 2026-11-23 — QA Loops 2-3: Language Guard, Format Validation, Chunk Retry, restoreHeadings Alignment Fix
+- **Status:** DONE (code committed separately; deploy pending)
+- **Context:** QA loop 1 found three root causes (Indonesian leakage, dead format validation, partial processing on long docs). This session fixed them (loop 2) and verified + found one deeper regression (loop 3).
+- **Changes (all three artifacts: `engine/humanizer.js`, `build_worker.js`, compiled `worker.js`):**
+  1. *Language guard (F-01):* `- LANGUAGE: Output MUST be 100% English...` line added to the remaining 3 mode prompts (academic_turnitin, conversational_zerogpt, universal). Balance mode already had it. Now 4/4 modes x 3 files.
+  2. *Format validation activated (F-02):* `detectNonEnglish()` + `validateFormat()` were defined but never called. Now called after the final `restoreHeadings()` in `autoLoopHumanize()`; result surfaced as `formatIssues: string[]` in the response (informational, never rejects the rewrite). Both functions exported from engine.
+  3. *Chunk retry (F-03):* a failed chunk rewrite now retries once before falling back to keep-original (`err1`/`err2` in the `Promise.all` batch map). Prevents transient LLM/socket errors from silently leaving unhumanized blocks.
+  4. *restoreHeadings alignment fix (found in loop 3):* the old positional alignment misfired when a heading was dropped mid-document — an intact heading at output position i was treated as a rephrase of original position i, so `Conclusion` got swapped to `Part 7` and then filtered out of reinsertion by `outSet`, losing it permanently (and breaking idempotency). Rewrote alignment: exact-match scan first (any output heading identical to a remaining original is intact), then pair leftover candidates with the earliest same-level remaining original as rephrases, remainder = missing. Applied to engine + builder; `worker.js` regenerated.
+- **QA this session:**
+  - `node benchmark/test_restore_headings.js`: **14/14 PASS** (was 12/14 — the 2 failures were the alignment bug).
+  - `node engine/test.js`: **7/7 PASS**.
+  - `node benchmark/test_long_doc.js`: PASS (2216 -> 2331 words, 105.2% coverage, 12/12 headings, 0% AI).
+  - `node benchmark/_parity_check.js` (new): PARITY ALL OK — `detectNonEnglish`/`validateFormat`/`splitBlocksForRewrite` byte-identical after template-literal unescape; `restoreHeadings` verified behavioral-identical (engine==builder==worker, incl. regex-metachar headings) since comments/escaping differ by design across the two runtimes.
+  - `node build_worker.js` regenerates `worker.js` (91,193 bytes); `node --check` OK on all three.
+- **Artifacts:** `benchmark/_parity_check.js` (new, untracked) — behavioral parity checker superseding the line-based `_diff_functions.js` for these functions.
+- **TDL next session (user-requested, deferred):** progress UI endpoint — currently `scanStatus` only flips once before/after the whole auto-loop; long docs (360s+) give no intermediate feedback. Needs an SSE or chunked-status endpoint + UI wiring. Also backend monitor.
+- **Next:** commit (pending user approval), then `wrangler deploy`.
