@@ -906,3 +906,11 @@
 - **Artifacts:** `benchmark/_parity_check.js` (new, untracked) — behavioral parity checker superseding the line-based `_diff_functions.js` for these functions.
 - **TDL next session (user-requested, deferred):** progress UI endpoint — currently `scanStatus` only flips once before/after the whole auto-loop; long docs (360s+) give no intermediate feedback. Needs an SSE or chunked-status endpoint + UI wiring. Also backend monitor.
 - **Next:** commit (pending user approval), then `wrangler deploy`.
+
+## 2026-11-23 — QA Loops 2-3 Deploy
+- **Commit:** `7b936e9` (6 files, +371/-64) — includes `_diff_functions.js` (previously untracked) + `_parity_check.js`.
+- **Deploy:** `npx wrangler deploy` succeeded (wrangler 4.166.0, installed on demand).
+- **Live smoke test (`ai-humanizer.emerilansel.workers.dev`):**
+  - `/api/health`: 200 `{"status":"ok"}`.
+  - `/api/auto-loop-humanize` with Indonesian input + `# Test Heading`: `formatIssues: []`, heading preserved verbatim, 0 Indonesian leakage, output fully English — language guard + validation confirmed on the deployed edge worker.
+- **Next:** push to `origin/main`, then TDL items (progress UI endpoint first).
