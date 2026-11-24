@@ -823,7 +823,11 @@ function splitBlocksForRewrite(blocks, maxWords = 380) {
 // Detect non-English words that commonly leak when the input is Indonesian
 // or mixed-language. Returns the matched words (empty array = clean).
 function detectNonEnglish(text) {
-  const ID_COMMON = /\\b(?:dan|yang|untuk|dengan|ini|itu|adalah|pada|dalam|akan|bisa|juga|sangat|lebih|dari|ke|di|ada|atau|ketika|saat|karena|seperti|harus|sudah|belum|banyak|sedikit|satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|tidur|malam|hari|bisa|tidak|bukan|ada|belum|sudah|akan|telah|sedang|sedang|telah|akan|bisa|harus|perlu|ingin|mau|boleh|jangan|silakan|tolong|terima|kasih|selamat|pagi|siang|sore|malam|besok|kemarin|hari|minggu|bulan|tahun|jam|menit|detik|tahu|lihat|dengar|bicara|tulis|baca|kerja|belajar|main|makan|minum|tidur|bangun|duduk|berdiri|jalan|lari|duduk|senang|sedih|marah|takut|kenyang|lapar|haus|dingin|panas|besar|kecil|panjang|pendek|tinggi|rendah|cepat|lambat|baru|lama|muda|tua|baik|jelek|benar|salah|mudah|sulit|murah|mahal|dekat|jauh|penuh|kosong|kotor|bersih|terang|gelap|keras|pelan|keras|pelan|keras|pelan)\\b/gi;
+  // Only markers that have no English reading. The old list carried common
+  // Indonesian words that are also ordinary English (dan, di, jauh, terang,
+  // gelap, ...), so a perfectly English rewrite got flagged as "non-English
+  // words leaked" whenever three or more of them appeared anywhere.
+  const ID_COMMON = /\\b(?:yang|untuk|dengan|adalah|pada|dalam|akan|bisa|juga|sangat|lebih|ketika|saat|karena|seperti|harus|sudah|belum|banyak|sedikit|tidur|malam|tidak|bukan|telah|sedang|perlu|ingin|mau|boleh|jangan|silakan|tolong|terima|kasih|selamat|pagi|siang|sore|besok|kemarin|minggu|bulan|tahun|menit|detik|belajar|makan|minum|bangun|berdiri|senang|sedih|marah|takut|kenyang|lapar|haus|dingin|panas|besar|kecil|panjang|pendek|tinggi|rendah|cepat|lambat|jelek|salah|mudah|sulit|murah|mahal|dekat|penuh|kosong|kotor|bersih|keras|pelan)\\b/gi;
   const matches = text.match(ID_COMMON) || [];
   return Array.from(new Set(matches.map(m => m.toLowerCase())));
 }
@@ -916,15 +920,30 @@ function restoreHeadings(original, rewritten) {
   return outLines.join('\\n').replace(/\\n{3,}/g, '\\n\\n').trim() + '\\n';
 }
 
-async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
+async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgress) {
   const text = sanitizeInputSuperhumanizer(rawInput);
+
+  // Progress reporting: a long doc takes minutes of opaque wall-clock time.
+  // The caller gets {phase, done, total} updates; no-op when unregistered.
+  const progress = { phase: 'sanitize', done: 0, total: 0 };
+  const report = (phase, done, total) => {
+    progress.phase = phase;
+    if (typeof done === 'number') progress.done = done;
+    if (typeof total === 'number') progress.total = total;
+    if (typeof onProgress === 'function') {
+      try { onProgress(Object.assign({}, progress)); } catch (e) {}
+    }
+  };
+  report('sanitize');
 
   // Rewrite in bounded chunks so long documents are never truncated.
   const rawBlocks = text.split(/\\r?\\n\\s*\\r?\\n/).filter(p => p.trim().length > 0);
   const inputWords = text.split(/\\s+/).filter(Boolean).length;
   let rawPass1;
   if (inputWords <= 450) {
+    report('rewrite', 0, 1);
     rawPass1 = await runPass1Rewrite(text, mode, env);
+    report('rewrite', 1, 1);
   } else {
     const chunks = splitBlocksForRewrite(rawBlocks);
     const rewrittenChunks = [];
@@ -933,6 +952,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
     // take 8-10 minutes; bounded parallelism cuts that to ~2 rounds of
     // wall-clock time without exhausting sockets (max 3 in flight).
     const CONCURRENCY = 3;
+    report('rewrite', 0, chunks.length);
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const batch = chunks.slice(i, i + CONCURRENCY);
       const results = await Promise.all(batch.map(async (chunk) => {
@@ -949,6 +969,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
         }
       }));
       rewrittenChunks.push(...results);
+      report('rewrite', rewrittenChunks.length, chunks.length);
     }
     rawPass1 = rewrittenChunks.join('\\n\\n');
   }
@@ -964,6 +985,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   let zeroGptScanResult = null;
 
   // Concurrent fast live detector scan
+  report('scan');
   const [tRes, zRes] = await Promise.allSettled([
     scanTurnitinLive(currentText),
     scanZeroGptLive(currentText)
@@ -975,18 +997,21 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   const turnitinRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
   const zeroGptRate = zeroGptScanResult?.fakePercentage || 0;
 
-  // Targeted parallel closed-loop ONLY if detectors strongly flag the text (> 28% AI or class === 'ai')
-  if ((turnitinRate > 28 || liveScanResult?.class === 'ai') || zeroGptRate > 28) {
+    // Targeted parallel closed-loop ONLY if detectors flag the text (> 20% AI).
+    // Thresholds synced with engine/humanizer.js (both were once 20/20/20; the
+    // builder had drifted to 28/25/25 since Stage 18, so edge and local
+    // humanized different sentences).
+    if (turnitinRate > 20 || zeroGptRate > 20) {
     let turnitinFlagged = [];
     let zeroGptFlagged = [];
 
-    if (liveScanResult?.class === 'ai' || turnitinRate > 25) {
+    if (liveScanResult?.class === 'ai' || turnitinRate > 20) {
       turnitinFlagged = (liveScanResult.sentences || [])
         .filter(s => (s.generated_prob > 0.18 || s.class === 'ai') && s.sentence.trim().length > 10)
         .map(s => s.sentence);
     }
 
-    if (zeroGptRate > 25 && Array.isArray(zeroGptScanResult.h)) {
+    if (zeroGptRate > 20 && Array.isArray(zeroGptScanResult.h)) {
       zeroGptFlagged = zeroGptScanResult.h.filter(s => typeof s === 'string' && s.trim().length > 10);
     }
 
@@ -1003,6 +1028,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
 
     for (const batch of batches) {
       retries += batch.length;
+      report('fix', retries, allFlagged.length);
       const fixPromises = batch.map(async (sentence) => {
         try {
           const rawFixed = await rehumanizeSentence(sentence, '', '', mode, env);
@@ -1022,6 +1048,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
       currentText = cleanFormattingOnly(currentText);
       currentText = mechanicalClean(currentText).cleaned;
 
+      // Re-scan after each batch to refresh the flagged list for the next one.
+      report('verify');
       try {
         const [tFinal, zFinal] = await Promise.allSettled([
           scanTurnitinLive(currentText),
@@ -1081,6 +1109,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
   }
 
   // Final safety net: headings restored after every rewrite step.
+  report('finalize');
   currentText = restoreHeadings(text, currentText);
 
   // Structural + language validation (headings, list items, non-English leak).
@@ -1101,6 +1130,11 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}) {
     zeroGptScanResult
   };
 }
+
+// In-memory progress store keyed by job id. Each Worker isolate holds its own
+// Map, so a poll that lands on a different isolate returns "unknown job" and
+// the UI just keeps its last known phase — no SSE, no Durable Object needed.
+const progressJobs = new Map();
 
 export default {
   async fetch(request, env, ctx) {
@@ -1157,18 +1191,55 @@ export default {
 
     // API: Auto Loop Humanize
     if (request.method === 'POST' && (pathname === '/api/auto-loop-humanize' || pathname === '/api/humanizer/auto-loop-humanize')) {
+      let job = null;
       try {
-        const { text, mode } = await request.json();
-        const result = await autoLoopHumanize(text || '', mode || 'academic_turnitin', env);
+        const body = await request.json();
+        const text = body.text;
+        const mode = body.mode;
+        const jobId = typeof body.jobId === 'string' && body.jobId ? body.jobId : 'job_' + Date.now();
+        job = { phase: 'sanitize', done: 0, total: 0, doneFlag: false, error: null };
+        progressJobs.set(jobId, job);
+        if (progressJobs.size > 200) {
+          const oldest = progressJobs.keys().next().value;
+          if (oldest !== jobId) progressJobs.delete(oldest);
+        }
+        const result = await autoLoopHumanize(text || '', mode || 'academic_turnitin', env, (p) => {
+          job.phase = p.phase;
+          job.done = p.done;
+          job.total = p.total;
+        });
+        job.doneFlag = true;
         return new Response(JSON.stringify(result), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (err) {
+        if (job) { job.error = err.message; job.doneFlag = true; }
         return new Response(JSON.stringify({ error: err.message }), {
           status: 500,
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       }
+    }
+
+    // API: Auto Loop Progress (poll)
+    if (request.method === 'GET' && (pathname === '/api/progress' || pathname === '/api/humanizer/progress')) {
+      const id = url.searchParams.get('id');
+      const job = id && progressJobs.get(id);
+      if (!job) {
+        return new Response(JSON.stringify({ error: 'unknown job' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+      return new Response(JSON.stringify({
+        phase: job.phase,
+        done: job.done,
+        total: job.total,
+        complete: job.doneFlag,
+        error: job.error
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
     }
 
     // API: Live Scan Turnitin

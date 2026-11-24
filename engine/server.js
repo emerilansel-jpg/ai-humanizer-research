@@ -15,6 +15,11 @@ const {
 const PORT = 3000;
 const HTML_PATH = path.join(__dirname, 'index.html');
 
+// In-memory progress store keyed by job id. One entry per auto-loop run;
+// readers poll GET /api/progress?id=... — no SSE (event-stream support on
+// Cloudflare Workers is unreliable and would need a Durable Object).
+const progressJobs = new Map();
+
 const server = http.createServer(async (req, res) => {
   // CORS and Cache Control
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -60,16 +65,50 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { text, mode } = JSON.parse(body || '{}');
-        const result = await autoLoopHumanize(text || '', mode || 'academic_turnitin');
+        const { text, mode, jobId } = JSON.parse(body || '{}');
+        const id = typeof jobId === 'string' && jobId ? jobId : 'job_' + Date.now();
+        const job = { phase: 'sanitize', done: 0, total: 0, doneFlag: false, error: null };
+        progressJobs.set(id, job);
+        // Bound the map: a runaway poller must not leak entries forever.
+        if (progressJobs.size > 200) {
+          const oldest = progressJobs.keys().next().value;
+          if (oldest !== id) progressJobs.delete(oldest);
+        }
+
+        const result = await autoLoopHumanize(text || '', mode || 'academic_turnitin', (p) => {
+          job.phase = p.phase;
+          job.done = p.done;
+          job.total = p.total;
+        });
+        job.doneFlag = true;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err) {
+        const { jobId } = (() => { try { return JSON.parse(body || '{}'); } catch (e) { return {}; } })();
+        const job = jobId && progressJobs.get(jobId);
+        if (job) { job.error = err.message; job.doneFlag = true; }
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
     });
     return;
+  }
+
+  // Progress poll endpoint for the auto-loop (long docs take minutes).
+  if (req.method === 'GET' && (req.url.startsWith('/api/progress') || req.url.startsWith('/api/humanizer/progress'))) {
+    const id = new URL(req.url, 'http://localhost').searchParams.get('id');
+    const job = id && progressJobs.get(id);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (!job) {
+      return res.end(JSON.stringify({ error: 'unknown job' }));
+    }
+    return res.end(JSON.stringify({
+      phase: job.phase,
+      done: job.done,
+      total: job.total,
+      complete: job.doneFlag,
+      error: job.error
+    }));
   }
 
   if (req.method === 'POST' && (req.url === '/api/live-scan-turnitin' || req.url === '/api/humanizer/live-scan-turnitin')) {

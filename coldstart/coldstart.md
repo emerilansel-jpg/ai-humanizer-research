@@ -914,3 +914,25 @@
   - `/api/health`: 200 `{"status":"ok"}`.
   - `/api/auto-loop-humanize` with Indonesian input + `# Test Heading`: `formatIssues: []`, heading preserved verbatim, 0 Indonesian leakage, output fully English — language guard + validation confirmed on the deployed edge worker.
 - **Next:** push to `origin/main`, then TDL items (progress UI endpoint first).
+
+## 2026-11-24 — Stage 22: Progress Poll Endpoint, Threshold Drift Fix, detectNonEnglish False-Positive Fix
+- **Status:** DONE (code committed separately; deploy pending)
+- **Context:** Resumed from coldstart. Repo clean, synced with `origin/main` (0/0). Ran full audit: `engine/test.js` 7/7, `test_restore_headings.js` 14/14, `_parity_check.js` PARITY ALL OK, `build_worker.js` byte-identical, edge `/api/health` 200. All green before any change.
+- **Findings & Fixes (all three artifacts: `engine/humanizer.js`, `build_worker.js`, compiled `worker.js` + `engine/server.js`, `engine/index.html`):**
+  1. *Progress UI (TDL from 2026-11-23):* long docs (360s+) gave no intermediate feedback — `scanStatus` flipped once before/after the whole auto-loop. Implemented poll-based progress instead of SSE (Cloudflare Workers `text/event-stream` support is unreliable, would need a Durable Object):
+     - `autoLoopHumanize(rawInput, mode, [env,] onProgress)` now emits `{phase, done, total}` at 11 points: `sanitize`, `rewrite` (per chunk, `done/total`), `scan`, `fix` (per batch), `verify`, `finalize`. No-op when no callback registered.
+     - New `GET /api/progress?id=<jobId>` on local server + edge worker. In-memory `progressJobs` Map (bounded at 200 entries), returns `{phase, done, total, complete, error}`; unknown id → `{"error":"unknown job"}`.
+     - `POST /api/auto-loop-humanize` accepts optional `jobId`, registers the job, reports phase updates during the run.
+     - `engine/index.html` `runAutoLoop()`: generates a `jobId`, polls `/progress` every 1.5s, renders `Rewriting chunks (3/7)` / `Fixing flagged sentences (2/4)` etc. into `scanStatus`; clears the timer in `finally`.
+     - Worker-isolate caveat (documented in code): each isolate has its own Map, so a poll landing on a different isolate returns `unknown job` and the UI keeps its last known phase — acceptable, no Durable Object needed.
+  2. *Threshold drift (real bug, found during audit):* builder/worker closed-loop used `> 28` / `> 25` / `> 25` (since Stage 18) while engine used `> 20` / `> 20` / `> 20` (since QA loops 2-3). Edge and local humanized *different sentences*. Synced builder+worker to 20/20/20 to match engine. Break condition was already `<= 20` in both.
+  3. *`detectNonEnglish` false-positive:* the ID_COMMON regex carried common Indonesian words that are also ordinary English (`dan`, `di`, `ke`, `dari`, `ini`, `itu`, `ada`, `jauh`, `terang`, `gelap`, `hari`, `baru`, `lama`, `tua`, `baik`, `benar`, `satu`…). A perfectly English rewrite got flagged `non-English words leaked: terang,dan,jauh,gelap` whenever 3+ appeared anywhere (seen in `test_long_doc.js` output). Rewrote the list to only markers with no English reading (`yang`, `untuk`, `tidak`, `bukan`, `telah`, `sedang`, `tidur`, `malam`, `kenyang`, `lapar`, …). Verified: English text → `[]`, Indonesian text → detected, mixed → detected.
+- **QA this session:**
+  - `node engine/test.js`: **7/7 PASS**.
+  - `node benchmark/test_restore_headings.js`: **14/14 PASS**.
+  - `node benchmark/_parity_check.js`: **PARITY ALL OK** (`detectNonEnglish`/`validateFormat` byte-identical e==b==w after template-literal unescape; 4/4 LANGUAGE guards in all three).
+  - `node build_worker.js`: regenerates `worker.js` (95,262 bytes); `node --check` OK on engine/builder/server/worker.
+  - `node benchmark/test_long_doc.js`: PASS — 2216 → 2297 words (103.7%), headings 12/12, missing numbers none, Overall AI 0%, latency 412.8s. (`formatIssues` no longer false-positives on this fixture after the dictionary fix.)
+  - Local progress smoke test (`engine/server.js`): POST with `jobId` → polled `/api/progress?id=...` saw `sanitize → rewrite (0/1) → scan → fix (2/2) → verify → finalize (complete:true)`; result had `# Test Heading` preserved verbatim, `formatIssues: []`, AI 0%. Unknown id returned `{"error":"unknown job"}`. Server stopped after test (port 3000 free).
+- **Artifacts:** 5 files changed — `engine/humanizer.js`, `build_worker.js`, `worker.js`, `engine/server.js`, `engine/index.html`.
+- **Next:** commit (pending user approval), then `wrangler deploy`, then smoke-test the progress endpoint live on the edge worker.

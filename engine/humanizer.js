@@ -1050,7 +1050,11 @@ function restoreHeadings(original, rewritten) {
 // Detect non-English words that commonly leak when the input is Indonesian
 // or mixed-language. Returns the matched words (empty array = clean).
 function detectNonEnglish(text) {
-  const ID_COMMON = /\b(?:dan|yang|untuk|dengan|ini|itu|adalah|pada|dalam|akan|bisa|juga|sangat|lebih|dari|ke|di|ada|atau|ketika|saat|karena|seperti|harus|sudah|belum|banyak|sedikit|satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|tidur|malam|hari|bisa|tidak|bukan|ada|belum|sudah|akan|telah|sedang|sedang|telah|akan|bisa|harus|perlu|ingin|mau|boleh|jangan|silakan|tolong|terima|kasih|selamat|pagi|siang|sore|malam|besok|kemarin|hari|minggu|bulan|tahun|jam|menit|detik|tahu|lihat|dengar|bicara|tulis|baca|kerja|belajar|main|makan|minum|tidur|bangun|duduk|berdiri|jalan|lari|duduk|senang|sedih|marah|takut|kenyang|lapar|haus|dingin|panas|besar|kecil|panjang|pendek|tinggi|rendah|cepat|lambat|baru|lama|muda|tua|baik|jelek|benar|salah|mudah|sulit|murah|mahal|dekat|jauh|penuh|kosong|kotor|bersih|terang|gelap|keras|pelan|keras|pelan|keras|pelan)\b/gi;
+  // Only markers that have no English reading. The old list carried common
+  // Indonesian words that are also ordinary English (dan, di, jauh, terang,
+  // gelap, ...), so a perfectly English rewrite got flagged as "non-English
+  // words leaked" whenever three or more of them appeared anywhere.
+  const ID_COMMON = /\b(?:yang|untuk|dengan|adalah|pada|dalam|akan|bisa|juga|sangat|lebih|ketika|saat|karena|seperti|harus|sudah|belum|banyak|sedikit|tidur|malam|tidak|bukan|telah|sedang|perlu|ingin|mau|boleh|jangan|silakan|tolong|terima|kasih|selamat|pagi|siang|sore|besok|kemarin|minggu|bulan|tahun|menit|detik|belajar|makan|minum|bangun|berdiri|senang|sedih|marah|takut|kenyang|lapar|haus|dingin|panas|besar|kecil|panjang|pendek|tinggi|rendah|cepat|lambat|jelek|salah|mudah|sulit|murah|mahal|dekat|penuh|kosong|kotor|bersih|keras|pelan)\b/gi;
   const matches = text.match(ID_COMMON) || [];
   return Array.from(new Set(matches.map(m => m.toLowerCase())));
 }
@@ -1077,9 +1081,22 @@ function validateFormat(original, rewritten) {
 }
 
 // High-Speed Production Auto-Loop Humanizer
-async function autoLoopHumanize(rawInput, mode = 'universal') {
+async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
   // 1. Superhumanizer Pre-sanitization (Unicode, smart quotes, dashes, whitespace)
   const text = sanitizeInputSuperhumanizer(rawInput);
+
+  // Progress reporting: a long doc takes minutes of opaque wall-clock time.
+  // The caller gets {phase, done, total} updates; no-op when unregistered.
+  const progress = { phase: 'sanitize', done: 0, total: 0 };
+  const report = (phase, done, total) => {
+    progress.phase = phase;
+    if (typeof done === 'number') progress.done = done;
+    if (typeof total === 'number') progress.total = total;
+    if (typeof onProgress === 'function') {
+      try { onProgress(Object.assign({}, progress)); } catch (e) {}
+    }
+  };
+  report('sanitize');
 
   // 2. Rewrite in bounded chunks so long documents are never truncated.
   //    Small inputs keep the old single-call path (no behavior change).
@@ -1087,7 +1104,9 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
   const inputWords = text.split(/\s+/).filter(Boolean).length;
   let rawPass1;
   if (inputWords <= 450) {
+    report('rewrite', 0, 1);
     rawPass1 = await runPass1Rewrite(text, mode);
+    report('rewrite', 1, 1);
   } else {
     const chunks = splitBlocksForRewrite(rawBlocks);
     const rewrittenChunks = [];
@@ -1096,6 +1115,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
     // take 8-10 minutes; bounded parallelism cuts that to ~2 rounds of
     // wall-clock time without exhausting sockets (max 3 in flight).
     const CONCURRENCY = 3;
+    report('rewrite', 0, chunks.length);
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const batch = chunks.slice(i, i + CONCURRENCY);
       const results = await Promise.all(batch.map(async (chunk) => {
@@ -1115,6 +1135,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
         }
       }));
       rewrittenChunks.push(...results);
+      report('rewrite', rewrittenChunks.length, chunks.length);
     }
     rawPass1 = rewrittenChunks.join('\n\n');
   }
@@ -1131,6 +1152,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
   let zeroGptScanResult = null;
 
   // Concurrent fast live detector scan (Turnitin + ZeroGPT)
+  report('scan');
   const [tRes, zRes] = await Promise.allSettled([
     scanTurnitinLive(currentText),
     scanZeroGptLive(currentText)
@@ -1142,7 +1164,10 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
   const turnitinRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
   const zeroGptRate = zeroGptScanResult?.fakePercentage || 0;
 
-  // Targeted parallel closed-loop ONLY if detectors flag the text (> 20% AI)
+  // Targeted parallel closed-loop ONLY if detectors flag the text (> 20% AI).
+  // Thresholds synced with build_worker.js (both were once 20/20/20; the
+  // builder had drifted to 28/25/25 since Stage 18, so edge and local
+  // humanized different sentences).
   if (turnitinRate > 20 || zeroGptRate > 20) {
     let turnitinFlagged = [];
     let zeroGptFlagged = [];
@@ -1170,6 +1195,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
 
     for (const batch of batches) {
       retries += batch.length;
+      report('fix', retries, allFlagged.length);
       const fixPromises = batch.map(async (sentence) => {
         try {
           const rawFixed = await rehumanizeSentence(sentence, '', '', mode);
@@ -1190,6 +1216,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
       currentText = mechanicalClean(currentText).cleaned;
 
       // Re-scan after each batch to refresh the flagged list for the next one.
+      report('verify');
       try {
         const [tFinal, zFinal] = await Promise.allSettled([
           scanTurnitinLive(currentText),
@@ -1249,6 +1276,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal') {
   }
 
   // Final safety net: headings restored after every rewrite step.
+  report('finalize');
   currentText = restoreHeadings(text, currentText);
 
   // Structural + language validation (headings, list items, non-English leak).

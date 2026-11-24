@@ -378,18 +378,48 @@
       btn.textContent = '⏳ Auto-Looping & Verifying...';
       document.getElementById('scanStatus').textContent = 'Iterative Multi-Pass Humanizing...';
 
+      // Progress polling: long documents take minutes, so the server reports
+      // per-chunk phase updates we surface live instead of a frozen status.
+      var jobId = 'j' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var pollTimer = null;
+      var PHASE_LABELS = {
+        sanitize: 'Cleaning input...',
+        rewrite: 'Rewriting chunks',
+        scan: 'Scanning detectors...',
+        fix: 'Fixing flagged sentences',
+        verify: 'Re-verifying...',
+        finalize: 'Finalizing output...'
+      };
+      function pollProgress() {
+        fetch(API_PREFIX + '/progress?id=' + encodeURIComponent(jobId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (p) {
+            if (!p || p.error) return;
+            var label = PHASE_LABELS[p.phase] || p.phase;
+            if (p.phase === 'rewrite' && p.total > 0) {
+              label += ' (' + p.done + '/' + p.total + ')';
+            } else if (p.phase === 'fix' && p.total > 0) {
+              label += ' (' + p.done + '/' + p.total + ')';
+            }
+            document.getElementById('scanStatus').textContent = label;
+          })
+          .catch(function () {});
+      }
+      pollTimer = setInterval(pollProgress, 1500);
+      pollProgress();
+
       try {
         var res = await fetch(API_PREFIX + '/auto-loop-humanize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: text, mode: mode })
+          body: JSON.stringify({ text: text, mode: mode, jobId: jobId })
         });
         var data = await res.json();
 
         // Populate Right Panel ONLY - DO NOT touch inputText!
         document.getElementById('outputText').value = data.rewritten;
         updateWordCounts();
-        
+
         // Comprehensive multi-detector evaluation (contains real ZeroGPT, calibrated Turnitin, SynthID, ChatGPT, Claude)
         updateDetectorsUI(data.evaluation);
         renderHeatmapGrouped(data.evaluation);
@@ -400,6 +430,7 @@
       } catch (e) {
         alert('Failed: ' + e.message);
       } finally {
+        if (pollTimer) clearInterval(pollTimer);
         btn.disabled = false;
         btn.textContent = '🛡️ Auto-Loop Humanize';
       }
