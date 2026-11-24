@@ -1136,6 +1136,74 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
 // the UI just keeps its last known phase — no SSE, no Durable Object needed.
 const progressJobs = new Map();
 
+// ---- Store + auth helpers (mirror of engine/store.js, KV-backed) ----
+const VERSION_LOG = [
+  { version: 'v25', date: '2024-01-10', note: 'Initial public release — multi-detector studio (Turnitin, ZeroGPT, GPTZero, Copyleaks, SynthID)' },
+  { version: 'v26', date: '2024-01-20', note: 'Added Balance Mode, Google SynthID + ChatGPT Watermark + Claude Detector suites' },
+  { version: 'v27', date: '2024-01-28', note: 'Live Turnitin + ZeroGPT dual closed-loop rehumanization' },
+  { version: 'v28', date: '2024-02-05', note: 'Calibrated detection baselines, reverse-engineered watermark logic' },
+  { version: 'v29', date: '2024-02-14', note: 'Long-doc chunked rewrite, dynamic completion budget, heading preservation' },
+  { version: 'v30', date: '2024-02-20', note: 'Language guard on all modes, format validation, chunk retry, heading dedup' },
+  { version: 'v31', date: '2024-02-25', note: 'Progress poll endpoint (live phase updates during auto-loop)' },
+  { version: 'v32', date: '2024-03-01', note: 'Parallel chunk rewrite (bounded concurrency), sync closed-loop thresholds 20/20/20' },
+  { version: 'v33', date: '2024-03-05', note: 'Account system: register/login, credits meter, coupon redemption, bug-report intake, email capture' },
+  { version: 'v34', date: '2024-03-10', note: 'KV-backed persistence (Cloudflare KV binding DATA), session cookie auth, free credit grant on register' }
+];
+const COUPONS = { 'AIHUMAN-FREE100': { credits: 100, label: 'Free 100 credits' } };
+const RUN_COST = 10;
+const FREE_CREDITS = 50;
+
+function hex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function hashPassword(pw, salt) {
+  const data = new TextEncoder().encode(salt + ':' + pw);
+  return hex(await crypto.subtle.digest('SHA-256', data));
+}
+function randomToken(bytes) {
+  const arr = new Uint8Array(bytes || 32);
+  crypto.getRandomValues(arr);
+  return hex(arr);
+}
+function tokenFromRequest(request) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  const m = cookieHeader.match(/(?:^|;\\s*)humanizer_token=([a-f0-9]{64})/);
+  if (m) return m[1];
+  const auth = request.headers.get('Authorization') || '';
+  if (/^Bearer\\s+[a-f0-9]{64}$/.test(auth)) return auth.slice(7).trim();
+  return null;
+}
+async function currentUser(env, request) {
+  const token = tokenFromRequest(request);
+  if (!token || !env.DATA) return null;
+  const sess = await env.DATA.get('sess:' + token, 'json');
+  if (!sess || !sess.user) return null;
+  return await env.DATA.get('user:' + sess.user, 'json');
+}
+async function ensureCredits(env, userId) {
+  const c = await env.DATA.get('credit:' + userId, 'json');
+  if (c && typeof c.balance === 'number') return c;
+  const fresh = { balance: FREE_CREDITS, history: [] };
+  await env.DATA.put('credit:' + userId, JSON.stringify(fresh));
+  return fresh;
+}
+async function addCredits(env, userId, amount, reason) {
+  const c = await ensureCredits(env, userId);
+  c.balance += amount;
+  c.history.push({ at: new Date().toISOString(), delta: amount, reason: reason || 'topup' });
+  if (c.history.length > 100) c.history = c.history.slice(-100);
+  await env.DATA.put('credit:' + userId, JSON.stringify(c));
+  return c;
+}
+function publicUser(u) { return u ? { id: u.id, email: u.email, createdAt: u.createdAt } : null; }
+
+function jsonRes(obj, status, extraHeaders) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { 'Content-Type': 'application/json', ...extraHeaders }
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1144,7 +1212,7 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Admin-Key'
     };
 
     if (request.method === 'OPTIONS') {
@@ -1171,6 +1239,146 @@ export default {
           ...corsHeaders
         }
       });
+    }
+
+    // ---- Auth: register / login / logout / me ----
+    if (request.method === 'POST' && (pathname === '/api/register' || pathname === '/api/humanizer/register')) {
+      try {
+        const { email, password } = await request.json();
+        const em = String(email || '').trim().toLowerCase();
+        const pw = String(password || '');
+        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)) return jsonRes({ error: 'Invalid email' }, 400, corsHeaders);
+        if (pw.length < 8) return jsonRes({ error: 'Password must be at least 8 characters' }, 400, corsHeaders);
+        const existing = await env.DATA.get('user-email:' + em, 'json');
+        if (existing) return jsonRes({ error: 'Email already registered' }, 409, corsHeaders);
+        const id = 'u_' + randomToken(8);
+        const salt = randomToken(16);
+        const user = { id, email: em, salt, hash: await hashPassword(pw, salt), createdAt: new Date().toISOString() };
+        await env.DATA.put('user:' + id, JSON.stringify(user));
+        await env.DATA.put('user-email:' + em, JSON.stringify(id));
+        await ensureCredits(env, id);
+        await addCredits(env, id, FREE_CREDITS, 'register');
+        const token = randomToken(32);
+        await env.DATA.put('sess:' + token, JSON.stringify({ user: id, createdAt: new Date().toISOString() }));
+        return jsonRes({ user: publicUser(user), token }, 200, { ...corsHeaders, 'Set-Cookie': 'humanizer_token=' + token + '; Path=/; HttpOnly; Max-Age=2592000' });
+      } catch (err) {
+        return jsonRes({ error: err.message }, 500, corsHeaders);
+      }
+    }
+
+    if (request.method === 'POST' && (pathname === '/api/login' || pathname === '/api/humanizer/login')) {
+      try {
+        const { email, password } = await request.json();
+        const em = String(email || '').trim().toLowerCase();
+        const pw = String(password || '');
+        const id = await env.DATA.get('user-email:' + em, 'json');
+        const user = id && await env.DATA.get('user:' + id, 'json');
+        if (!user || await hashPassword(pw, user.salt) !== user.hash) {
+          return jsonRes({ error: 'Invalid email or password' }, 401, corsHeaders);
+        }
+        const token = randomToken(32);
+        await env.DATA.put('sess:' + token, JSON.stringify({ user: user.id, createdAt: new Date().toISOString() }));
+        return jsonRes({ user: publicUser(user), token }, 200, { ...corsHeaders, 'Set-Cookie': 'humanizer_token=' + token + '; Path=/; HttpOnly; Max-Age=2592000' });
+      } catch (err) {
+        return jsonRes({ error: err.message }, 500, corsHeaders);
+      }
+    }
+
+    if (request.method === 'POST' && (pathname === '/api/logout' || pathname === '/api/humanizer/logout')) {
+      const token = tokenFromRequest(request);
+      if (token && env.DATA) await env.DATA.delete('sess:' + token);
+      return jsonRes({ ok: true }, 200, { ...corsHeaders, 'Set-Cookie': 'humanizer_token=; Path=/; HttpOnly; Max-Age=0' });
+    }
+
+    if (request.method === 'GET' && (pathname === '/api/me' || pathname === '/api/humanizer/me')) {
+      const user = await currentUser(env, request);
+      if (!user) return jsonRes({ error: 'Not logged in' }, 401, corsHeaders);
+      const credits = await ensureCredits(env, user.id);
+      return jsonRes({ user: publicUser(user), credits: credits.balance, history: credits.history }, 200, corsHeaders);
+    }
+
+    // ---- Credits ----
+    if (request.method === 'GET' && (pathname === '/api/credits' || pathname === '/api/humanizer/credits')) {
+      const user = await currentUser(env, request);
+      if (!user) return jsonRes({ error: 'Not logged in' }, 401, corsHeaders);
+      const credits = await ensureCredits(env, user.id);
+      return jsonRes({ credits: credits.balance, history: credits.history }, 200, corsHeaders);
+    }
+
+    // ---- Coupon redemption ----
+    if (request.method === 'POST' && (pathname === '/api/apply-coupon' || pathname === '/api/humanizer/apply-coupon')) {
+      try {
+        const user = await currentUser(env, request);
+        if (!user) return jsonRes({ error: 'Not logged in' }, 401, corsHeaders);
+        const { code } = await request.json();
+        const coupon = COUPONS[String(code || '').trim().toUpperCase()];
+        if (!coupon) return jsonRes({ error: 'Invalid coupon code' }, 404, corsHeaders);
+        const credits = await addCredits(env, user.id, coupon.credits, 'coupon:' + code);
+        return jsonRes({ ok: true, added: coupon.credits, credits: credits.balance, label: coupon.label }, 200, corsHeaders);
+      } catch (err) {
+        return jsonRes({ error: err.message }, 500, corsHeaders);
+      }
+    }
+
+    // ---- Version log (public) ----
+    if (request.method === 'GET' && (pathname === '/api/version-log' || pathname === '/api/humanizer/version-log')) {
+      return jsonRes({ versions: VERSION_LOG }, 200, corsHeaders);
+    }
+
+    // ---- Email capture (stored to KV; no SMTP yet) ----
+    if (request.method === 'POST' && (pathname === '/api/notify-email' || pathname === '/api/humanizer/notify-email')) {
+      try {
+        const { email, source } = await request.json();
+        const em = String(email || '').trim().toLowerCase();
+        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(em)) return jsonRes({ error: 'Invalid email' }, 400, corsHeaders);
+        const list = (await env.DATA.get('email-list', 'json')) || [];
+        if (!list.some(e => e.email === em)) {
+          list.push({ email: em, source: source || 'unknown', at: new Date().toISOString() });
+          await env.DATA.put('email-list', JSON.stringify(list));
+        }
+        return jsonRes({ ok: true }, 200, corsHeaders);
+      } catch (err) {
+        return jsonRes({ error: err.message }, 500, corsHeaders);
+      }
+    }
+
+    // ---- Bug reports ----
+    if (request.method === 'POST' && (pathname === '/api/reports' || pathname === '/api/humanizer/reports')) {
+      try {
+        const { title, description, email } = await request.json();
+        const t = String(title || '').trim();
+        const d = String(description || '').trim();
+        if (t.length < 3 || d.length < 10) return jsonRes({ error: 'Title (min 3) and description (min 10) required' }, 400, corsHeaders);
+        const id = 'r_' + randomToken(8);
+        const user = await currentUser(env, request);
+        const report = {
+          id, title: t.slice(0, 200), description: d.slice(0, 4000),
+          email: String(email || '').trim().toLowerCase().slice(0, 200) || null,
+          userId: user ? user.id : null,
+          createdAt: new Date().toISOString()
+        };
+        await env.DATA.put('report:' + id, JSON.stringify(report));
+        const idx = (await env.DATA.get('report-idx', 'json')) || [];
+        idx.push(id);
+        if (idx.length > 500) idx.splice(0, idx.length - 500);
+        await env.DATA.put('report-idx', JSON.stringify(idx));
+        return jsonRes({ ok: true, id }, 200, corsHeaders);
+      } catch (err) {
+        return jsonRes({ error: err.message }, 500, corsHeaders);
+      }
+    }
+
+    if (request.method === 'GET' && (pathname === '/api/reports' || pathname === '/api/humanizer/reports')) {
+      if ((request.headers.get('X-Admin-Key') || '') !== 'ADMIN') return jsonRes({ error: 'Admin key required' }, 401, corsHeaders);
+      const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 100);
+      const idx = (await env.DATA.get('report-idx', 'json')) || [];
+      const ids = idx.slice(-limit).reverse();
+      const reports = [];
+      for (const id of ids) {
+        const r = await env.DATA.get('report:' + id, 'json');
+        if (r) reports.push(r);
+      }
+      return jsonRes({ reports, total: idx.length }, 200, corsHeaders);
     }
 
     // API: Analyze Heatmap
@@ -1203,13 +1411,23 @@ export default {
           const oldest = progressJobs.keys().next().value;
           if (oldest !== jobId) progressJobs.delete(oldest);
         }
+        // Charge logged-in users before the run; refuse when out of credits.
+        const user = await currentUser(env, request);
+        if (user) {
+          const credits = await ensureCredits(env, user.id);
+          if (credits.balance < RUN_COST) return jsonRes({ error: 'Insufficient credits' }, 402, corsHeaders);
+          credits.balance -= RUN_COST;
+          credits.history.push({ at: new Date().toISOString(), delta: -RUN_COST, reason: 'auto-loop' });
+          await env.DATA.put('credit:' + user.id, JSON.stringify(credits));
+        }
         const result = await autoLoopHumanize(text || '', mode || 'academic_turnitin', env, (p) => {
           job.phase = p.phase;
           job.done = p.done;
           job.total = p.total;
         });
         job.doneFlag = true;
-        return new Response(JSON.stringify(result), {
+        const creditsAfter = user ? await ensureCredits(env, user.id) : null;
+        return new Response(JSON.stringify(Object.assign({}, result, creditsAfter ? { credits: creditsAfter.balance } : {})), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders }
         });
       } catch (err) {

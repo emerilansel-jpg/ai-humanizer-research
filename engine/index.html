@@ -106,13 +106,90 @@
     .fixer-box { background: #1e1b4b; border: 1px solid #4338ca; border-radius: 8px; padding: 12px; margin-top: 12px; display: none; }
     .fixer-box.active { display: block; }
     .fixer-text { font-size: 0.84rem; color: #c7d2fe; margin-bottom: 8px; font-style: italic; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+    .modal-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+    .modal-card .panel-top { margin-bottom: 14px; }
+    #versionList .vrow { padding: 8px 0; border-bottom: 1px solid var(--border); }
+    #versionList .vrow:last-child { border-bottom: none; }
+    #versionList .vver { font-weight: 700; color: var(--accent); margin-right: 8px; }
+    #versionList .vdate { color: var(--muted); font-size: 0.75rem; }
+    #versionList .vnote { color: var(--text); font-size: 0.82rem; margin-top: 3px; }
   </style>
 </head>
 <body>
   <header>
-    <h1>AI Humanizer & Multi-Detector Studio <span class="badge">Production Studio</span> <span class="badge badge-neural">Anti-Detection</span> <span class="badge badge-live">Live Turnitin API</span></h1>
-    <span style="color: var(--muted); font-size: 0.82rem;">Dual-Panel Architecture | Preserved Original Text | Live Multi-Detector Verification</span>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h1>AI Humanizer & Multi-Detector Studio <span class="badge">Production Studio</span> <span class="badge badge-neural">Anti-Detection</span> <span class="badge badge-live">Live Turnitin API</span></h1>
+        <span style="color: var(--muted); font-size: 0.82rem;">Dual-Panel Architecture | Preserved Original Text | Live Multi-Detector Verification</span>
+      </div>
+      <div id="accountBar" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span id="creditPill" style="display:none; font-size:0.78rem; font-weight:700; color:var(--accent); background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:999px;">✨ 50 credits</span>
+        <button class="btn-clean btn-sm" id="btnAccount" style="display:none;" onclick="logoutUser()">Log out</button>
+        <button class="btn-clean btn-sm" id="btnLogin" onclick="openModal('loginModal')">Log in</button>
+        <button class="btn-clean btn-sm" id="btnRegister" onclick="openModal('registerModal')">Register</button>
+        <button class="btn-clean btn-sm" onclick="openModal('bugModal')">🐞 Report</button>
+        <button class="btn-clean btn-sm" onclick="openModal('versionModal')">📜 Versions</button>
+      </div>
+    </div>
   </header>
+
+  <!-- Bug report modal -->
+  <div class="modal-overlay" id="bugModal" style="display:none;">
+    <div class="modal-card">
+      <div class="panel-top"><span class="panel-title">🐞 Report a Bug</span><button class="btn-clean btn-sm" onclick="closeModal('bugModal')">&times;</button></div>
+      <input id="bugTitle" placeholder="Short title" style="width:100%; margin-bottom:8px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <textarea id="bugDesc" placeholder="What happened? Steps to reproduce..." style="width:100%; min-height:110px; margin-bottom:8px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);"></textarea>
+      <input id="bugEmail" placeholder="Email (optional, for follow-up)" style="width:100%; margin-bottom:10px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <button class="btn-loop" style="width:100%;" onclick="submitBug()">Submit Report</button>
+      <div id="bugStatus" style="font-size:0.8rem; margin-top:8px; color:var(--muted);"></div>
+    </div>
+  </div>
+
+  <!-- Version log modal -->
+  <div class="modal-overlay" id="versionModal" style="display:none;">
+    <div class="modal-card">
+      <div class="panel-top"><span class="panel-title">📜 Version History</span><button class="btn-clean btn-sm" onclick="closeModal('versionModal')">&times;</button></div>
+      <div id="versionList" style="max-height:60vh; overflow:auto; font-size:0.85rem;"></div>
+    </div>
+  </div>
+
+  <!-- Login modal -->
+  <div class="modal-overlay" id="loginModal" style="display:none;">
+    <div class="modal-card">
+      <div class="panel-top"><span class="panel-title">🔑 Log in</span><button class="btn-clean btn-sm" onclick="closeModal('loginModal')">&times;</button></div>
+      <input id="loginEmail" type="email" placeholder="Email" style="width:100%; margin-bottom:8px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <input id="loginPassword" type="password" placeholder="Password" style="width:100%; margin-bottom:10px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <button class="btn-loop" style="width:100%;" onclick="doLogin()">Log in</button>
+      <div id="loginStatus" style="font-size:0.8rem; margin-top:8px; color:var(--muted);"></div>
+      <div style="font-size:0.78rem; margin-top:8px; color:var(--muted);">No account? <a href="#" onclick="openModal('registerModal');return false;" style="color:var(--accent);">Register</a></div>
+    </div>
+  </div>
+
+  <!-- Register modal -->
+  <div class="modal-overlay" id="registerModal" style="display:none;">
+    <div class="modal-card">
+      <div class="panel-top"><span class="panel-title">✨ Register (50 free credits)</span><button class="btn-clean btn-sm" onclick="closeModal('registerModal')">&times;</button></div>
+      <input id="regEmail" type="email" placeholder="Email" style="width:100%; margin-bottom:8px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <input id="regPassword" type="password" placeholder="Password (min 8 chars)" style="width:100%; margin-bottom:10px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text);">
+      <button class="btn-loop" style="width:100%;" onclick="doRegister()">Create Account</button>
+      <div id="regStatus" style="font-size:0.8rem; margin-top:8px; color:var(--muted);"></div>
+      <div style="font-size:0.78rem; margin-top:8px; color:var(--muted);">Have an account? <a href="#" onclick="openModal('loginModal');return false;" style="color:var(--accent);">Log in</a></div>
+    </div>
+  </div>
+
+  <!-- Coupon / credits modal -->
+  <div class="modal-overlay" id="couponModal" style="display:none;">
+    <div class="modal-card">
+      <div class="panel-top"><span class="panel-title">🎟️ Credits & Coupon</span><button class="btn-clean btn-sm" onclick="closeModal('couponModal')">&times;</button></div>
+      <div id="creditInfo" style="font-size:0.9rem; margin-bottom:10px; color:var(--muted);">Loading...</div>
+      <input id="couponCode" placeholder="Coupon code (e.g. AIHUMAN-FREE100)" style="width:100%; margin-bottom:10px; padding:8px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text); text-transform:uppercase;">
+      <button class="btn-loop" style="width:100%;" onclick="applyCoupon()">Redeem Coupon</button>
+      <div id="couponStatus" style="font-size:0.8rem; margin-top:8px; color:var(--muted);"></div>
+    </div>
+  </div>
 
   <!-- Cross-check Multi-Detectors Bar -->
   <div class="detectors-card">
@@ -420,6 +497,9 @@
         document.getElementById('outputText').value = data.rewritten;
         updateWordCounts();
 
+        // Surface updated credit balance (if logged in and charged)
+        if (typeof data.credits === 'number') setLoggedIn(true, data.credits);
+
         // Comprehensive multi-detector evaluation (contains real ZeroGPT, calibrated Turnitin, SynthID, ChatGPT, Claude)
         updateDetectorsUI(data.evaluation);
         renderHeatmapGrouped(data.evaluation);
@@ -427,6 +507,9 @@
 
         document.getElementById('scanStatus').textContent = '100% Cleaned (' + data.retryTries + ' Loop Tries)';
         closeFixer();
+
+        // Lead capture: prompt for email after a successful run (guests only)
+        maybePromptEmail();
       } catch (e) {
         alert('Failed: ' + e.message);
       } finally {
@@ -588,6 +671,150 @@
     document.getElementById('tabHeatmap').addEventListener('click', function() { switchOutputTab('heatmap'); });
     document.getElementById('btnCopyText').addEventListener('click', copyCleanText);
     document.getElementById('btnCloseFixer').addEventListener('click', closeFixer);
+
+    // ---- Account / credits / reports / version-log UI ----
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    async function api(path, opts) {
+      var res = await fetch(API_PREFIX + path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {}));
+      var data = null;
+      try { data = await res.json(); } catch (e) {}
+      return { ok: res.ok, status: res.status, data: data || {} };
+    }
+
+    function setLoggedIn(user, credits) {
+      var show = !!user;
+      document.getElementById('btnLogin').style.display = show ? 'none' : '';
+      document.getElementById('btnRegister').style.display = show ? 'none' : '';
+      document.getElementById('btnAccount').style.display = show ? '' : 'none';
+      var pill = document.getElementById('creditPill');
+      if (show) {
+        pill.style.display = '';
+        pill.textContent = '✨ ' + (typeof credits === 'number' ? credits : 0) + ' credits';
+        pill.onclick = function() { openModal('couponModal'); refreshCredits(); };
+        pill.style.cursor = 'pointer';
+      } else {
+        pill.style.display = 'none';
+      }
+    }
+
+    async function refreshMe() {
+      var r = await api('/me');
+      if (r.ok) setLoggedIn(r.data.user, r.data.credits);
+      else setLoggedIn(null, 0);
+    }
+
+    async function refreshCredits() {
+      var r = await api('/credits');
+      var el = document.getElementById('creditInfo');
+      if (r.ok) {
+        el.innerHTML = 'Balance: <b style="color:var(--accent)">' + r.data.credits + '</b> credits';
+        setLoggedIn(true, r.data.credits);
+      } else {
+        el.textContent = 'Not logged in.';
+      }
+    }
+
+    async function doRegister() {
+      var em = document.getElementById('regEmail').value.trim();
+      var pw = document.getElementById('regPassword').value;
+      var st = document.getElementById('regStatus');
+      st.textContent = 'Creating...';
+      var r = await api('/register', { method: 'POST', body: JSON.stringify({ email: em, password: pw }) });
+      if (r.ok) {
+        st.textContent = 'Done! 50 credits granted.';
+        localStorage.setItem('humanizer_token', r.data.token);
+        setLoggedIn(r.data.user, 50);
+        setTimeout(function() { closeModal('registerModal'); }, 600);
+      } else {
+        st.textContent = (r.data && r.data.error) || 'Failed';
+      }
+    }
+
+    async function doLogin() {
+      var em = document.getElementById('loginEmail').value.trim();
+      var pw = document.getElementById('loginPassword').value;
+      var st = document.getElementById('loginStatus');
+      st.textContent = 'Logging in...';
+      var r = await api('/login', { method: 'POST', body: JSON.stringify({ email: em, password: pw }) });
+      if (r.ok) {
+        st.textContent = 'Welcome back!';
+        localStorage.setItem('humanizer_token', r.data.token);
+        closeModal('loginModal');
+        refreshMe();
+      } else {
+        st.textContent = (r.data && r.data.error) || 'Failed';
+      }
+    }
+
+    async function logoutUser() {
+      await api('/logout', { method: 'POST' });
+      localStorage.removeItem('humanizer_token');
+      setLoggedIn(null, 0);
+    }
+
+    async function applyCoupon() {
+      var code = document.getElementById('couponCode').value.trim();
+      var st = document.getElementById('couponStatus');
+      st.textContent = 'Redeeming...';
+      var r = await api('/apply-coupon', { method: 'POST', body: JSON.stringify({ code: code }) });
+      if (r.ok) {
+        st.textContent = '+' + r.data.added + ' credits added! Balance: ' + r.data.credits;
+        setLoggedIn(true, r.data.credits);
+        refreshCredits();
+      } else {
+        st.textContent = (r.data && r.data.error) || 'Failed';
+      }
+    }
+
+    async function submitBug() {
+      var t = document.getElementById('bugTitle').value.trim();
+      var d = document.getElementById('bugDesc').value.trim();
+      var e = document.getElementById('bugEmail').value.trim();
+      var st = document.getElementById('bugStatus');
+      st.textContent = 'Sending...';
+      var r = await api('/reports', { method: 'POST', body: JSON.stringify({ title: t, description: d, email: e }) });
+      if (r.ok) {
+        st.textContent = '✓ Report submitted. Thank you!';
+        document.getElementById('bugTitle').value = '';
+        document.getElementById('bugDesc').value = '';
+        setTimeout(function() { closeModal('bugModal'); st.textContent = ''; }, 800);
+      } else {
+        st.textContent = (r.data && r.data.error) || 'Failed';
+      }
+    }
+
+    async function loadVersions() {
+      var r = await api('/version-log');
+      var el = document.getElementById('versionList');
+      if (!r.ok || !r.data.versions) { el.textContent = 'Unavailable'; return; }
+      el.innerHTML = r.data.versions.slice().reverse().map(function(v) {
+        return '<div class="vrow"><span class="vver">' + v.version + '</span><span class="vdate">' + v.date + '</span><div class="vnote">' + v.note + '</div></div>';
+      }).join('');
+    }
+
+    // Wire version modal to load on open
+    var _openModal = openModal;
+    openModal = function(id) {
+      _openModal(id);
+      if (id === 'versionModal') loadVersions();
+      if (id === 'couponModal') refreshCredits();
+    };
+
+    // After auto-loop completes, prompt for email (lead capture) if not logged in
+    function maybePromptEmail() {
+      var pill = document.getElementById('creditPill');
+      if (pill && pill.style.display === 'none') {
+        var email = prompt('Enter your email to get notified of updates & free credit drops:');
+        if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email.trim())) {
+          api('/notify-email', { method: 'POST', body: JSON.stringify({ email: email.trim(), source: 'auto-loop' }) });
+        }
+      }
+    }
+
+    // Init: restore session from cookie (HttpOnly) via /me
+    refreshMe();
 
     // Initial populate
     // pasteSample(); // Commented out to ensure input is empty by default

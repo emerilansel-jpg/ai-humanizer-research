@@ -12,6 +12,10 @@ routes = [
 
 workers_dev = true
 
+[[kv_namespaces]]
+binding = "DATA"
+id = "35f14bc373494f73b1f045e161ecd8ca"
+
 [vars]
 PESATROUTER_API_KEY = "sk-pesat-3c2f89bd9a72302375f8e10ef9eba726891a81513f907dfb"
 PESATROUTER_MODEL = "pesat-lite"
