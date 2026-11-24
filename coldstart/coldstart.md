@@ -936,3 +936,14 @@
   - Local progress smoke test (`engine/server.js`): POST with `jobId` → polled `/api/progress?id=...` saw `sanitize → rewrite (0/1) → scan → fix (2/2) → verify → finalize (complete:true)`; result had `# Test Heading` preserved verbatim, `formatIssues: []`, AI 0%. Unknown id returned `{"error":"unknown job"}`. Server stopped after test (port 3000 free).
 - **Artifacts:** 5 files changed — `engine/humanizer.js`, `build_worker.js`, `worker.js`, `engine/server.js`, `engine/index.html`.
 - **Next:** commit (pending user approval), then `wrangler deploy`, then smoke-test the progress endpoint live on the edge worker.
+
+## 2026-11-24 — Stage 22 Deploy
+- **Commit:** `b0addf3` (6 files, +286/-24) — progress poll endpoint, threshold sync, detectNonEnglish fix. Pushed to `origin/main` (`5c21cf6..b0addf3`).
+- **Deploy:** `npx wrangler deploy` succeeded (wrangler 4.167.0). Version ID `af0c978b-0179-40f3-a52c-d7defdcfa54e`. Routes: `jdpwriter.com/humanizer*`, `jdpwriter.com/api/humanizer*`, `www.*`, `ai-humanizer.emerilansel.workers.dev`.
+- **Live smoke test:**
+  - `GET /api/humanizer/health`: 200 `{"status":"ok"}`.
+  - `GET /api/humanizer/progress?id=nonexistent`: 404 `{"error":"unknown job"}` — endpoint live.
+  - `POST /api/humanizer/auto-loop-humanize` with `jobId`: progress polled live, reached `{"phase":"finalize","done":4,"total":4,"complete":true}`. Output: heading `# Edge Progress Test` preserved verbatim, `formatIssues: []`, AI 0%, Turnitin 0%.
+  - `ai-humanizer.emerilansel.workers.dev` same flow: `rewrite (0/1)` observed on first poll, then `unknown job` on later polls (isolate hop — each Worker isolate holds its own Map, as documented). Final result still correct: heading preserved, `formatIssues: []`, AI 0%.
+- **Known caveat (by design, documented in code):** progress polling on the edge can miss phases when a poll lands on a different isolate; the UI keeps its last known phase and the final result is unaffected. No Durable Object added (YAGNI).
+- **Next:** none pending. TDL item (progress UI endpoint) is done.
