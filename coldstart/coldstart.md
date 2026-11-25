@@ -968,3 +968,28 @@
   - Note: `engine/test.js` Test 6 prints `ZeroGPT Score: 100%` while passing — pre-existing (assertions target `overallAiPercent`, not the live `zeroGptScore`). That is exactly the case Fix D now surfaces in the UI instead of hiding it.
 - **Artifacts:** 4 files changed — `engine/humanizer.js`, `engine/index.html`, `build_worker.js`, `worker.js`. Commit `8b25131` (`fix(detector): tag live-scan fallbacks as failures, close modal overlap`, +45/-41).
 - **Next:** commit coldstart doc, then `wrangler deploy` + live smoke test.
+
+## 2026-11-25 — QA Audit-Fix Pass: Residual Risks, Proxy Quarantine & Browser UAT
+- **Status:** DONE (code committed; edge deploy pending — R5 manual)
+- **Context:** Follow-up to the Bug 1/Bug 2 fix (`8b25131`). Ran the gsd-audit-fix process manually (the referenced `gsd-core/workflows/audit-fix.md` is absent on this machine — skill points to a missing file). Classified 6 residual findings: 5 auto-fixable, 1 manual.
+- **Findings & Dispositions:**
+  1. *R3 (high, FIXED) — gauge under-reported live AI:* `updateDetectorsUI` read only `overallAiPercent` (local estimator), so a live ZeroGPT 100% rendered next to a 0% gauge — Bug-2 masking one level up. Gauge now `max(estimator, zeroGptScore)`. `zeroGptScore` is authentic (`api.zerogpt.com`, overwritten at the scoreboard override when the scan succeeds); its estimator form is `overall + mixed*0.2 >= overall`, so `max()` can neither under-report nor inflate.
+  2. *R2 (low, FIXED) — badge hid ZeroGPT feedback when `passed=true`,* making a score/verdict contradiction invisible. Feedback now always appended.
+  3. *R6 (medium, FIXED) — `qa/repro_b2.js` asserted nothing,* so QA could never go red. Added threshold assertions mirroring `engine/test.js` (overall ≤ 20, live scoreboard ≤ 35, both badges pass) with `exit(1)`; existing fixture verified to pass (no false positive).
+  4. *R4 (low, FIXED) — `qa/` untracked.* Committed `repro_b2.js`, `user_input_sleep.md`, `b2_output.md` as the regression fixture.
+  5. *R1 (medium, ACCEPTED) — rate-guard duplication across engine/builder/inner/outer loop.* `benchmark/_parity_check.js` already fails on drift between the three artifacts; extracting a helper is YAGNI.
+  6. *R5 (high, MANUAL) — edge deploy.* `worker.js` regenerated but not pushed/deployed. Needs user confirmation (outward-facing).
+- **Self-caught regression (REJECTED fix, important):* the first R3 attempt also fed `turnitinScore` into the gauge and made the Turnitin badge display `max(estimator, live)`. `engine/test.js` Test 6 then failed at 89%. That number is **not** a real Turnitin score: the Stage 19 forensic audit (`coldstart.md:734`) proved `turnitindetector.ai` is a fake-metric proxy — `Turnitin = aiConfidence * 0.910` via hardcoded multiplier, not a real query. Surfacing it re-opened exactly the Stage-19 bug that had locked `applyLiveScanData()` to the manual scan button. **Reverted:** badge displays the estimator only, `turnitinScore` excluded from the gauge, proxy consulted solely as a secondary pass/fail gate. Verified `applyLiveScanData` remains reachable only from the manual live-scan handler (1 definition + 1 call, both on that button).
+- **Verification:**
+  - `node engine/test.js`: **7/7 PASS** (EXIT=0, Test 6 green again at `Turnitin AI Score: 0%`).
+  - `node benchmark/test_restore_headings.js`: **14/14 PASS**.
+  - `node benchmark/_parity_check.js`: **PARITY ALL OK**.
+  - Contract checks: **15/15 PASS** (fallback tagging, override guards, loop fail-safe, no `worstTurnitinPct` anywhere, estimator-only Turnitin badge in all 3 artifacts, gauge excludes `turnitinScore`, modal close-all, ZG feedback always shown).
+  - Unit tests: gauge worst-verdict 5/5 (incl. proxy-exclusion case), Turnitin badge truth table 4/4.
+  - `worker.js` regenerated via `node build_worker.js`; `node --check` clean on engine/builder/worker.
+- **Browser UAT (IAB, `http://localhost:3000/`, tab finalized):**
+  - *Bug 1:* `openModal('registerModal')` → only `registerModal: flex`. Click the in-modal "Log in" link → `loginModal: flex`, `registerModal: none`, all others `none`. **PASS** (this is the exact repro from the original report).
+  - *Bug 2 / R3:* payload `{overallAiPercent: 0, zeroGptScore: 100}` → gauge `100%` (`ai-high`), `valAi 100%`, badge `⚠ 100% AI — Your Text is AI/GPT Generated`. **PASS** (previously gauge 0%, badge had no feedback).
+  - *Proxy quarantine:* `{turnitinScore: 89, zeroGptScore: 0}` → gauge stays `0%`. **PASS**. `{overallAiPercent: 40, zeroGptScore: 44}` → gauge `44%`. **PASS**.
+- **Artifacts:** `2347c65` (`fix(detector): surface authentic ZeroGPT verdict, quarantine proxy Turnitin`, 7 files, +170/-6).
+- **Next:** R5 — `wrangler deploy` + live edge smoke test (awaiting user go-ahead).
