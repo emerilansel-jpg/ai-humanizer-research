@@ -947,3 +947,24 @@
   - `ai-humanizer.emerilansel.workers.dev` same flow: `rewrite (0/1)` observed on first poll, then `unknown job` on later polls (isolate hop — each Worker isolate holds its own Map, as documented). Final result still correct: heading preserved, `formatIssues: []`, AI 0%.
 - **Known caveat (by design, documented in code):** progress polling on the edge can miss phases when a poll lands on a different isolate; the UI keeps its last known phase and the final result is unaffected. No Durable Object added (YAGNI).
 - **Next:** none pending. TDL item (progress UI endpoint) is done.
+
+## 2026-11-25 — QA Bug 1 + Bug 2: Modal Overlap Fix & Live-Scan False-Negative Fix
+- **Status:** DONE (code committed; deploy pending)
+- **Context:** Resumed from coldstart. Two QA bugs picked up: (1) register popup — clicking "Log in" inside Register still showed Register; (2) `qa/repro_b2.js` reported output "100% AI GPT". Baseline re-run before any change: `engine/test.js` 7/7, `test_restore_headings.js` 14/14, `_parity_check.js` PARITY ALL OK.
+- **Findings & Fixes:**
+  1. *Bug 1 — modal overlap (`engine/index.html`):* `openModal(id)` only set `display:flex` on the target and never hid the others. `registerModal` sits later in the DOM than `loginModal`, so after `openModal('registerModal')` the click on `openModal('loginModal')` left Register on top (same z-index, later node wins). Fix: `openModal` now queries `.modal-overlay` and hides every one before showing the requested id. One line, covers all modal switches (header buttons, in-modal links).
+  2. *Bug 2 — false detector verdicts (`engine/humanizer.js`, `build_worker.js`, `worker.js`):* not a rewriter-formula problem — a **fallback contract** problem. `scanZeroGptLive` resolved the *same* object on all four failure paths (non-2xx, JSON parse error, socket error, timeout) as on a clean pass: `{fakePercentage: 0, isHuman: true, h: []}`. `scanTurnitinLive` did the same with `{class: 'human', aiRateResult: {Turnitin: 0.05}}`. Callers could not tell "passed" from "never scanned", so a dead/flaky API reported 0% AI with `passed: true` on every badge — a false negative that masked the QA report of 100% AI. Proof: a live baseline call in this session returned `scanFailed: true, fakePct: 0`, indistinguishable from a real pass before the fix.
+     - **Fix A — tag every fallback:** all 4 ZeroGPT + 4 Turnitin failure paths now return `scanFailed: true` (8 sites in engine, 6 in builder, regenerated into worker).
+     - **Fix B — guard the scoreboard override:** `if (zeroGptScanResult)` / `if (liveScanResult && ...)` became `&& !…scanFailed`, so a failed scan can no longer overwrite the local estimator's honest number with a bogus 0.
+     - **Fix C — failed scan blocks the verify-loop break:** rates became `(!result || result.scanFailed) ? 100 : …`, so `if (tRate <= 20 && zRate <= 20) break;` can no longer exit on a scan that never happened. Null (`Promise.allSettled` rejected) now reads 100, not 0 — that behavior change is the fix.
+     - **Fix D — UI shows ZeroGPT's verdict:** `updateDetectorsUI` previously dropped `detectors.zerogpt.feedback`; the badge now appends it (`— Your Text is AI/GPT Generated`) so the number is never shown without its source verdict.
+- **Safety checks:** all-failed entry into the fix loop verified — `sentences` is undefined and `h: []` on fallbacks, so `allFlagged` = 0 → 0 LLM calls, `MAX_BATCHES = 3` still bounds it. No runaway loop introduced.
+- **QA this session:**
+  - `node engine/test.js`: **7/7 PASS**.
+  - `node benchmark/test_restore_headings.js`: **14/14 PASS**.
+  - `node benchmark/_parity_check.js`: **PARITY ALL OK**.
+  - `node build_worker.js`: regenerates `worker.js`; `node --check` OK on engine/builder/worker.
+  - Manual assertions: 8/8 fallbacks tagged `scanFailed`, 6/6 override guards present across the three artifacts, break-condition truth table 6/6, Bug 1 `openModal` close-all-first verified in both `index.html` and `worker.js`.
+  - Note: `engine/test.js` Test 6 prints `ZeroGPT Score: 100%` while passing — pre-existing (assertions target `overallAiPercent`, not the live `zeroGptScore`). That is exactly the case Fix D now surfaces in the UI instead of hiding it.
+- **Artifacts:** 4 files changed — `engine/humanizer.js`, `engine/index.html`, `build_worker.js`, `worker.js`. Commit `8b25131` (`fix(detector): tag live-scan fallbacks as failures, close modal overlap`, +45/-41).
+- **Next:** commit coldstart doc, then `wrangler deploy` + live smoke test.
