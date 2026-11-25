@@ -1084,10 +1084,13 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
 
   // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
   if (zeroGptScanResult && !zeroGptScanResult.scanFailed) {
+    // Pass/fail must come from the LIVE verdict only. The old 4th term
+    // (evaluation.zeroGptScore <= 20) read the local estimator BEFORE this
+    // block overwrote it, so a live 100% AI still rendered passed:true —
+    // the same contradiction class as the Bug-2 false negative.
     const zgPass = (zeroGptScanResult.fakePercentage <= 35) ||
       (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 40) ||
-      (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback)) ||
-      (evaluation.zeroGptScore <= 20);
+      (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback));
     evaluation.detectors.zerogpt = {
       name: 'ZeroGPT (Official Live)',
       passed: Boolean(zgPass),
