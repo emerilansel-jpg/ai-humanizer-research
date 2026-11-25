@@ -770,11 +770,11 @@ async function scanTurnitinLive(text) {
       },
       body: JSON.stringify({ text: cleanText })
     });
-    if (!res.ok) return { class: 'human', aiRateResult: { Turnitin: 0.05 } };
+    if (!res.ok) return { class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true };
     const parsed = await res.json();
-    return parsed.data || { class: 'human', aiRateResult: { Turnitin: 0.05 } };
+    return parsed.data || { class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true };
   } catch (e) {
-    return { class: 'human', aiRateResult: { Turnitin: 0.05 } };
+    return { class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true };
   }
 }
 
@@ -790,11 +790,11 @@ async function scanZeroGptLive(text) {
       },
       body: JSON.stringify({ input_text: text })
     });
-    if (!res.ok) return { fakePercentage: 0, isHuman: true, h: [] };
+    if (!res.ok) return { fakePercentage: 0, isHuman: true, h: [], scanFailed: true };
     const parsed = await res.json();
-    return parsed.data || { fakePercentage: 0, isHuman: true, h: [] };
+    return parsed.data || { fakePercentage: 0, isHuman: true, h: [], scanFailed: true };
   } catch (e) {
-    return { fakePercentage: 0, isHuman: true, h: [] };
+    return { fakePercentage: 0, isHuman: true, h: [], scanFailed: true };
   }
 }
 
@@ -994,8 +994,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
   if (tRes.status === 'fulfilled' && tRes.value) liveScanResult = tRes.value;
   if (zRes.status === 'fulfilled' && zRes.value) zeroGptScanResult = zRes.value;
 
-  const turnitinRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
-  const zeroGptRate = zeroGptScanResult?.fakePercentage || 0;
+  const turnitinRate = (!liveScanResult || liveScanResult.scanFailed) ? 100 : ((liveScanResult.aiRateResult && liveScanResult.aiRateResult.Turnitin) || 0) * 100;
+  const zeroGptRate = (!zeroGptScanResult || zeroGptScanResult.scanFailed) ? 100 : (zeroGptScanResult.fakePercentage || 0);
 
     // Targeted parallel closed-loop ONLY if detectors flag the text (> 20% AI).
     // Thresholds synced with engine/humanizer.js (both were once 20/20/20; the
@@ -1059,8 +1059,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
         if (zFinal.status === 'fulfilled' && zFinal.value) zeroGptScanResult = zFinal.value;
       } catch (e) {}
 
-      const tRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
-      const zRate = zeroGptScanResult?.fakePercentage || 0;
+      const tRate = (!liveScanResult || liveScanResult.scanFailed) ? 100 : ((liveScanResult.aiRateResult && liveScanResult.aiRateResult.Turnitin) || 0) * 100;
+      const zRate = (!zeroGptScanResult || zeroGptScanResult.scanFailed) ? 100 : (zeroGptScanResult.fakePercentage || 0);
       if (tRate <= 20 && zRate <= 20) break;
 
       const nextTurnitin = (liveScanResult?.class === 'ai' || tRate > 20)
@@ -1083,7 +1083,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
   const fidelity = checkFidelity(text, currentText);
 
   // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
-  if (zeroGptScanResult) {
+  if (zeroGptScanResult && !zeroGptScanResult.scanFailed) {
     const zgPass = (zeroGptScanResult.fakePercentage <= 35) ||
       (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 40) ||
       (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback)) ||
@@ -1098,7 +1098,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', env = {}, onProgre
   }
 
   // If live Turnitin was scanned, calibrate Turnitin detector accurately
-  if (liveScanResult && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
+  if (liveScanResult && !liveScanResult.scanFailed && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
     const turnitinPct = Math.round(liveScanResult.aiRateResult.Turnitin * 100);
     const isPassed = evaluation.turnitinScore <= 20 || turnitinPct <= 35;
     evaluation.detectors.turnitin = {

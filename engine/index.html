@@ -364,7 +364,11 @@
       };
 
       setBadge('det_turnitin', d.turnitin, d.turnitin.passed ? '✓ ' + d.turnitin.score : '⚠ ' + d.turnitin.score);
-      setBadge('det_zerogpt', d.zerogpt, d.zerogpt.passed ? '✓ ' + d.zerogpt.score : '⚠ ' + d.zerogpt.score);
+      // Surface ZeroGPT's own verdict (e.g. 'Your Text is AI/GPT Generated') rather than only the number.
+      var zg = d.zerogpt;
+      var zgLabel = zg.passed ? '✓ ' + zg.score : '⚠ ' + zg.score;
+      if (!zg.passed && zg.feedback) zgLabel += ' — ' + zg.feedback;
+      setBadge('det_zerogpt', zg, zgLabel);
       setBadge('det_gptzero', d.gptzero, d.gptzero.passed ? '✓ ' + d.gptzero.score : '⚠ ' + d.gptzero.score);
       setBadge('det_copyleaks', d.copyleaks, d.copyleaks.passed ? '✓ Human' : '⚠ AI');
       setBadge('det_writer', d.writer, d.writer.passed ? '✓ Pass' : '⚠ Flagged');
@@ -673,7 +677,7 @@
     document.getElementById('btnCloseFixer').addEventListener('click', closeFixer);
 
     // ---- Account / credits / reports / version-log UI ----
-    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function openModal(id) { var ov=document.querySelectorAll('.modal-overlay'); for(var i=0;i<ov.length;i++) ov[i].style.display='none'; document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     async function api(path, opts) {

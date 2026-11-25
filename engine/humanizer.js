@@ -891,17 +891,17 @@ function scanZeroGptLive(text) {
           if (json.success && json.data) {
             resolve(json.data);
           } else {
-            resolve({ fakePercentage: 0, isHuman: true, h: [] });
+            resolve({ fakePercentage: 0, isHuman: true, h: [], scanFailed: true });
           }
         } catch (e) {
-          resolve({ fakePercentage: 0, isHuman: true, h: [] });
+          resolve({ fakePercentage: 0, isHuman: true, h: [], scanFailed: true });
         }
       });
     });
-    req.on('error', () => resolve({ fakePercentage: 0, isHuman: true, h: [] }));
+    req.on('error', () => resolve({ fakePercentage: 0, isHuman: true, h: [], scanFailed: true }));
     req.on('timeout', () => {
       req.destroy();
-      resolve({ fakePercentage: 0, isHuman: true, h: [] });
+      resolve({ fakePercentage: 0, isHuman: true, h: [], scanFailed: true });
     });
     req.write(payload);
     req.end();
@@ -934,17 +934,17 @@ function scanTurnitinLive(text) {
           if (parsed.success && parsed.data) {
             resolve(parsed.data);
           } else {
-            resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 } });
+            resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true });
           }
         } catch (e) {
-          resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 } });
+          resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true });
         }
       });
     });
-    req.on('error', () => resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 } }));
+    req.on('error', () => resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true }));
     req.on('timeout', () => {
       req.destroy();
-      resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 } });
+      resolve({ class: 'human', aiRateResult: { Turnitin: 0.05 }, scanFailed: true });
     });
     req.write(payload);
     req.end();
@@ -1161,8 +1161,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
   if (tRes.status === 'fulfilled' && tRes.value) liveScanResult = tRes.value;
   if (zRes.status === 'fulfilled' && zRes.value) zeroGptScanResult = zRes.value;
 
-  const turnitinRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
-  const zeroGptRate = zeroGptScanResult?.fakePercentage || 0;
+  const turnitinRate = (!liveScanResult || liveScanResult.scanFailed) ? 100 : ((liveScanResult.aiRateResult && liveScanResult.aiRateResult.Turnitin) || 0) * 100;
+  const zeroGptRate = (!zeroGptScanResult || zeroGptScanResult.scanFailed) ? 100 : (zeroGptScanResult.fakePercentage || 0);
 
   // Targeted parallel closed-loop ONLY if detectors flag the text (> 20% AI).
   // Thresholds synced with build_worker.js (both were once 20/20/20; the
@@ -1226,8 +1226,8 @@ async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
         if (zFinal.status === 'fulfilled' && zFinal.value) zeroGptScanResult = zFinal.value;
       } catch (e) {}
 
-      const tRate = (liveScanResult?.aiRateResult?.Turnitin || 0) * 100;
-      const zRate = zeroGptScanResult?.fakePercentage || 0;
+      const tRate = (!liveScanResult || liveScanResult.scanFailed) ? 100 : ((liveScanResult.aiRateResult && liveScanResult.aiRateResult.Turnitin) || 0) * 100;
+      const zRate = (!zeroGptScanResult || zeroGptScanResult.scanFailed) ? 100 : (zeroGptScanResult.fakePercentage || 0);
       if (tRate <= 20 && zRate <= 20) break;
 
       const nextTurnitin = (liveScanResult?.class === 'ai' || tRate > 20)
@@ -1250,7 +1250,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
   const fidelity = checkFidelity(text, currentText);
 
   // If real ZeroGPT was scanned, update detector scoreboard with authentic ZeroGPT data
-  if (zeroGptScanResult) {
+  if (zeroGptScanResult && !zeroGptScanResult.scanFailed) {
     const zgPass = (zeroGptScanResult.fakePercentage <= 35) ||
       (typeof zeroGptScanResult.isHuman === 'number' && zeroGptScanResult.isHuman >= 40) ||
       (zeroGptScanResult.feedback && /human/i.test(zeroGptScanResult.feedback)) ||
@@ -1265,7 +1265,7 @@ async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
   }
 
   // If live Turnitin was scanned, calibrate Turnitin detector accurately
-  if (liveScanResult && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
+  if (liveScanResult && !liveScanResult.scanFailed && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
     const turnitinPct = Math.round(liveScanResult.aiRateResult.Turnitin * 100);
     const isPassed = evaluation.turnitinScore <= 20 || turnitinPct <= 35;
     evaluation.detectors.turnitin = {
