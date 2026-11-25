@@ -993,3 +993,42 @@
   - *Proxy quarantine:* `{turnitinScore: 89, zeroGptScore: 0}` → gauge stays `0%`. **PASS**. `{overallAiPercent: 40, zeroGptScore: 44}` → gauge `44%`. **PASS**.
 - **Artifacts:** `2347c65` (`fix(detector): surface authentic ZeroGPT verdict, quarantine proxy Turnitin`, 7 files, +170/-6).
 - **Next:** R5 — `wrangler deploy` + live edge smoke test (awaiting user go-ahead).
+
+## 2026-11-25 — TLDR & Handoff: QA Bug 1/2 Fixed + Deployed, Live ZeroGPT Truth Exposed (SESASI BESOK MULAI DI SINI)
+
+### TLDR (baca ini dulu kalau cuma punya 60 detik)
+1. **Bug 1 & Bug 2 FIXED, pushed, DEPLOYED.** Push `d3182fa..47c1672` (5 commit) + edge deploy Version ID `748a1b73-afc4-4581-957f-28c806af7344`. Smoke test edge lulus: health 200, progress 404 benar, HTML live membawa semua fix UI.
+2. **Bug 2 akar masalah = fallback contract, BUKAN formula rewriter.** `scanZeroGptLive`/`scanTurnitinLive` menghasilkan objek identik antara "gagal" dan "lolos bersih" di 4 jalur (non-2xx, parse error, socket error, timeout). API mati = skor 0% + `passed:true` = false negative. Sekarang semua 8 fallback bawa `scanFailed:true`, guard override, rate gagal=100 (loop tak bisa break di scan yang tak pernah jalan).
+3. **Bug 1 akar masalah = `openModal` tidak menutup overlay lain.** `registerModal` lebih akhir di DOM → menang z-index. Sekarang tutup semua dulu. UAT browser lulus: register → klik login → hanya login terbuka.
+4. **Proxy Turnitin itu PALSU (Stage 19, sudah lama terbukti).** `turnitindetector.ai` = `Turnitin = aiConfidence * 0.910` multiplier hardcoded, bukan query Turnitin asli. Saya sempat salah menariknya ke gauge, **dibatalkan sendiri** sebelum commit. `turnitinScore` kini dikecualikan dari gauge, badge pakai estimator saja.
+5. **⚠️ TEMUAN BESAR UNTUK BESOK: live ZeroGPT bilang 100% AI, bukan 0%.** `zgPass` punya term ke-4 yang baca estimator lokal SEBELUM overwrite → `passed:true` padahal `score:"100% AI"`. Sudah difix (live-only, commit `9042385`). **Konsekuensi: `engine/test.js` Test 5 & Test 7 kini MERAH** — dan itu JUJUR, bukan regresi.
+
+### Bukti angka historis kemungkinan besar bohong (turunan estimator)
+- `benchmark/run-10-benchmark.js:79`: kalau live scan gagal → jatuh ke `sentenceEval.zeroGptScore` (**estimator lokal**), bukan hasil scan asli.
+- Contoh konkret: estimator lokal **10%** vs live api.zerogpt.com **100%** → **selisih 90 poin** selama ini tertutup.
+- Input asli juga 100% AI, **deterministik 3/3 run** — bukan timeout/flaky.
+- Balance output: **67.7% AI** → Test 7 ikut merah.
+- Coldstart line 107 & 125-133 mencatat "ZeroGPT 0% / ZeroGPT Pass" di 10 subjek — SEMUA perlu ditinjau: dulu sudah bohong, atau API memang berubah?
+
+### To-Do List SESI BESOK (dalam urutan prioritas)
+- [ ] **P0 — Putuskan nasib Test 5 & Test 7 (engine/test.js:53 & :90).** Tiga opsi, JANGAN ubah tanpa keputusan user:
+  - (A) Biarkan merah = jujur bahwa live ZeroGPT belum dibobol.
+  - (B) Re-scope assertion ke estimator (`overallAiPercent`) + catat terang-terangan live ZeroGPT di luar jangkauan.
+  - (C) Rework engine supaya benar-benar bypass live ZeroGPT (pekerjaan besar, di luar scope Bug 2).
+- [ ] **P1 — Audit angka historical coldstart & benchmark.** Khususnya `run-10-benchmark.js` fallback estimator (line 79) dan klaim "ZeroGPT 0%/Pass" di line 107, 125-133. Putuskan mana yang perlu dikoreksi/dicabut.
+- [ ] **P2 — Deploy ulang.** Fix `zgPass` (`9042385`) belum di-push & belum di-deploy. Setelah putusan P0/P1 selesai, baru push + `wrangler deploy` (rollback baseline: `822fabe5-8ce3-4b43-8291-59850cce8715`; deploy terakhir: `748a1b73-afc4-4581-957f-28c806af7344`).
+- [ ] **P3 — Jalankan ulang full suite** setelah keputusan P0: `node engine/test.js`, `benchmark/test_restore_headings.js`, `benchmark/_parity_check.js`.
+- [ ] **P4 — Browser UAT ulang** di localhost:3000 kalau ada perubahan UI.
+- [ ] **P5 — Periksa apakah `qa/repro_b2.js` assertions perlu disesuaikan** dengan keputusan P0 (threshold `zeroGptScore <= 35` mungkin terlalu longgar/tidak relevan kalau live memang 100%).
+
+### State repo saat sesi berakhir
+- Branch `main`, **ahead origin 1 commit** (`9042385` belum push).
+- Working tree **bersih**.
+- `worker.js` sudah diregenerasi dengan fix `zgPass` tapi **belum deploy**.
+- Suite: parity **ALL OK**, headings **14/14**, engine **EXIT=1 (Test 5 & 7 merah — documented, intended)**.
+- Browser tab UAT sudah difinalisasi, server lokal sudah dimatikan.
+
+### Catatan teknis untuk melanjutkan
+- Rollback edge kalau perlu: `npx wrangler rollback` atau `npx wrangler versions deploy <old-version-id>`.
+- Semua fix Bug 1/2 ada di commit `8b25131`, `2347c65`, `9042385`. Docs: `c751152`, `47c1672`.
+- Skill `gsd-audit-fix` menunjuk file workflow yang **tidak ada** di mesin ini (`gsd-core/workflows/audit-fix.md` absen) — dijalankan manual. Pertimbangkan perbaiki skill-nya kalau relevan.
