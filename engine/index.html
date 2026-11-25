@@ -338,7 +338,13 @@
 
     function updateDetectorsUI(evalData) {
       currentEvaluation = evalData;
+      // Gauge takes the worst of the local estimator and the AUTHENTIC
+      // ZeroGPT verdict (api.zerogpt.com). turnitinScore is deliberately
+      // excluded: turnitindetector.ai is a proven fake-metric proxy
+      // (Stage 19: Turnitin = aiConfidence * 0.910), never a real score.
       var aiScore = evalData.overallAiPercent;
+      var liveZero = typeof evalData.zeroGptScore === 'number' ? evalData.zeroGptScore : 0;
+      aiScore = Math.max(aiScore, liveZero);
       var gauge = document.getElementById('gaugeElem');
       var gaugeVal = document.getElementById('gaugeVal');
 
@@ -353,7 +359,7 @@
 
       document.getElementById('valHuman').textContent = evalData.humanPercent + '%';
       document.getElementById('valMixed').textContent = evalData.mixedPercent + '%';
-      document.getElementById('valAi').textContent = evalData.overallAiPercent + '%';
+      document.getElementById('valAi').textContent = aiScore + '%';
 
       var d = evalData.detectors;
       var setBadge = function(id, obj, text) {
@@ -367,7 +373,7 @@
       // Surface ZeroGPT's own verdict (e.g. 'Your Text is AI/GPT Generated') rather than only the number.
       var zg = d.zerogpt;
       var zgLabel = zg.passed ? '✓ ' + zg.score : '⚠ ' + zg.score;
-      if (!zg.passed && zg.feedback) zgLabel += ' — ' + zg.feedback;
+      if (zg.feedback) zgLabel += ' — ' + zg.feedback;
       setBadge('det_zerogpt', zg, zgLabel);
       setBadge('det_gptzero', d.gptzero, d.gptzero.passed ? '✓ ' + d.gptzero.score : '⚠ ' + d.gptzero.score);
       setBadge('det_copyleaks', d.copyleaks, d.copyleaks.passed ? '✓ Human' : '⚠ AI');

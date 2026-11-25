@@ -1266,12 +1266,17 @@ async function autoLoopHumanize(rawInput, mode = 'universal', onProgress) {
 
   // If live Turnitin was scanned, calibrate Turnitin detector accurately
   if (liveScanResult && !liveScanResult.scanFailed && liveScanResult.aiRateResult && typeof liveScanResult.aiRateResult.Turnitin === 'number') {
+    // NOTE: turnitindetector.ai is a proven fake-metric proxy (Stage 19
+    // forensic audit: Turnitin = aiConfidence * 0.910 via hardcoded
+    // multiplier, not a real Turnitin query). Its live number must never
+    // overwrite the local estimator's score display — only the pass/fail
+    // gate may consult it as a secondary signal.
     const turnitinPct = Math.round(liveScanResult.aiRateResult.Turnitin * 100);
     const isPassed = evaluation.turnitinScore <= 20 || turnitinPct <= 35;
     evaluation.detectors.turnitin = {
       name: 'Turnitin (T-Checker)',
       passed: Boolean(isPassed),
-      score: (evaluation.turnitinScore <= 20) ? evaluation.turnitinScore + '% AI' : turnitinPct + '% AI'
+      score: evaluation.turnitinScore + '% AI'
     };
   }
 
