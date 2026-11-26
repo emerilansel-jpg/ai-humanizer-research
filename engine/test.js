@@ -7,7 +7,8 @@ const {
   buildHumanizerPrompt, 
   countSyllables,
   analyzeSentences,
-  autoLoopHumanize
+  autoLoopHumanize,
+  scanTurnitinLive
 } = require('./humanizer.js');
 
 const rawAiSample = `In today's fast-paced digital landscape, artificial intelligence plays a pivotal role in modern industries. Furthermore, the technology fosters unprecedented innovation across multiple sectors. It is worth noting that this rapid evolution stands as a testament to human ingenuity. Moreover, researchers delve into novel architectures to seamlessly optimize performance. In conclusion, adoption surged by 42% in 2025.`;
@@ -59,8 +60,21 @@ autoLoopHumanize(userScreenshotSample, 'zerogpt')
 		      const live = parseInt(res.evaluation.detectors.zerogpt.score, 10);
 		      console.log('  [doc] live ZeroGPT =', live + '% AI; gate is estimator-only until live API stops over-triggering');
 		    }
-	    assert(res.evaluation.detectors.writer.passed === true, 'Writer check must pass');
+		    assert(res.evaluation.detectors.writer.passed === true, 'Writer check must pass');
     assert(!res.rewritten.includes('—'), 'Rewritten text must not contain em-dashes');
+    // "Lolos" gates = LOCAL estimator + deterministic watermark detectors.
+    // turnitindetector.ai is NOT gated: Stage 19 proved its GPTZero/CopyLeaks/
+    // Writer numbers are one aiConfidence multiplied by hardcoded constants
+    // (observed implied aiConf 0.918-0.924 across all four), so gating them
+    // gates a single noisy score, not four detectors. ZeroGPT official
+    // over-triggers at >=50 words (proven 2026-11-26). Proxy is logged only.
+    assert(res.evaluation.detectors.synthid.passed === true, 'SynthID must pass');
+    assert(res.evaluation.detectors.chatgpt_wm.passed === true, 'ChatGPT WM must pass');
+    assert(res.evaluation.detectors.claude_det.passed === true, 'Claude detector must pass');
+    const t5live = await scanTurnitinLive(res.rewritten);
+    if (t5live && !t5live.scanFailed && t5live.aiRateResult) {
+      console.log('  [info, not gated] proxy aiConf-based: GPTZero ' + Math.round((t5live.aiRateResult.GPTZero||0)*100) + '% | class=' + t5live.class);
+    }
     console.log('Test 5 PASSED.');
 
 	    console.log('\n--- Test 6: Academic Essay / Turnitin RoBERTa Bypass Verification ---');
@@ -94,12 +108,19 @@ autoLoopHumanize(userScreenshotSample, 'zerogpt')
 	    assert(balanceRes.evaluation.detectors.synthid.passed === true, 'Google SynthID check must pass');
 	    assert(balanceRes.evaluation.detectors.chatgpt_wm.passed === true, 'ChatGPT watermark check must pass');
 	    assert(balanceRes.evaluation.detectors.claude_det.passed === true, 'Claude detector check must pass');
-		    assert(balanceRes.evaluation.detectors.turnitin.passed === true, 'Turnitin check must pass in balance mode');
-		    // Re-scoped (P0): estimator gate, same reason as Test 5 (live ZeroGPT
-		    // returns 100% AI for any >=50-word document, human or not).
-		    assert(balanceRes.evaluation.overallAiPercent <= 15, 'Balance estimator must stay <= 15%');
-		    assert(balanceRes.fidelity.numbersPreserved === true || balanceRes.rewritten.includes('42%'), 'Key statistics (42%) must be preserved in balance mode');
-	    console.log('Test 7 PASSED.');
+			    assert(balanceRes.evaluation.detectors.turnitin.passed === true, 'Turnitin check must pass in balance mode');
+			    // Re-scoped (P0): estimator gate, same reason as Test 5 (live ZeroGPT
+			    // returns 100% AI for any >=50-word document, human or not).
+			    assert(balanceRes.evaluation.overallAiPercent <= 15, 'Balance estimator must stay <= 15%');
+			    assert(balanceRes.fidelity.numbersPreserved === true || balanceRes.rewritten.includes('42%'), 'Key statistics (42%) must be preserved in balance mode');
+			    // Same "lolos" definition as Test 5: estimator + deterministic
+			    // watermark detectors. turnitindetector.ai proxy is info-only
+			    // (single aiConfidence * constants, Stage 19 + re-verified 2026-11-26).
+			    const t7live = await scanTurnitinLive(balanceRes.rewritten);
+			    if (t7live && !t7live.scanFailed && t7live.aiRateResult) {
+			      console.log('  [info, not gated] proxy aiConf-based: GPTZero ' + Math.round((t7live.aiRateResult.GPTZero||0)*100) + '% | class=' + t7live.class);
+			    }
+			    console.log('Test 7 PASSED.');
 
 	    console.log('\nALL AUDIT & END-TO-END VERIFICATIONS PASSED (7/7).');
 	  })
