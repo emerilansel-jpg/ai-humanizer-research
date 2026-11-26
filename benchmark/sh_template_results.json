@@ -1,0 +1,32 @@
+[
+  {
+    "target": 100,
+    "actual": 171,
+    "fake": 5.8,
+    "pass": true
+  },
+  {
+    "target": 300,
+    "actual": 308,
+    "fake": 8.4,
+    "pass": true
+  },
+  {
+    "target": 500,
+    "actual": 503,
+    "fake": 100,
+    "pass": false
+  },
+  {
+    "target": 700,
+    "actual": 723,
+    "fake": 85.9,
+    "pass": false
+  },
+  {
+    "target": 1000,
+    "actual": 1000,
+    "fake": 69,
+    "pass": false
+  }
+]
