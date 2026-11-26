@@ -8,7 +8,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 const fs = require('fs');
 const path = require('path');
 const { corpus } = require('./test_corpus.js');
-const { autoLoopHumanize, scanTurnitinLive } = require('../engine/humanizer.js');
+const { autoLoopHumanize, scanTurnitinLive, scanZeroGptLive } = require('../engine/humanizer.js');
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -41,9 +41,18 @@ async function runBenchmark() {
     }
 
     const baselineTurnitin = rawLive ? Math.round((rawLive.aiRateResult?.Turnitin || 0) * 100) : 60;
-    const baselineZeroGPT = rawLive ? Math.round((rawLive.aiRateResult?.ZeroGPT || 0) * 100) : 58;
+    // ZeroGPT baseline: the proxy (turnitindetector.ai) reports a FAKE
+    // ZeroGPT via a hardcoded multiplier (Stage 19 forensic audit), so it
+    // must never be read. Query the official api.zerogpt.com instead.
+    let baselineZeroGPT = null;
+    try {
+      const zg = await scanZeroGptLive(rawSubjectText);
+      if (zg && !zg.scanFailed) baselineZeroGPT = zg.fakePercentage;
+    } catch (e) {
+      console.log('     Baseline ZeroGPT scan notice:', e.message);
+    }
     const baselineClass = rawLive ? rawLive.class : 'ai';
-    console.log(`     Baseline Score -> Turnitin: ${baselineTurnitin}%, ZeroGPT: ${baselineZeroGPT}%, Class: ${baselineClass}`);
+    console.log(`     Baseline Score -> Turnitin: ${baselineTurnitin}%, ZeroGPT: ${baselineZeroGPT === null ? 'n/a (scan failed)' : baselineZeroGPT + '%'} , Class: ${baselineClass}`);
 
     console.log('  2. Humanizing subject text with academic_turnitin mode...');
     const startTime = Date.now();
@@ -76,8 +85,18 @@ async function runBenchmark() {
     }
 
     const postTurnitin = postLive ? Math.round((postLive.aiRateResult?.Turnitin || 0) * 100) : (humanized.metrics.sentenceEval.turnitinScore || 0);
-    const postZeroGPT = postLive ? Math.round((postLive.aiRateResult?.ZeroGPT || 0) * 100) : (humanized.metrics.sentenceEval.zeroGptScore || 0);
-    const postGPTZero = postLive ? Math.round((postLive.aiRateResult?.GPTZero || 0) * 100) : (humanized.metrics.sentenceEval.overallAiPercent || 0);
+    // ZeroGPT/GPTZero post scores: never read the proxy's fake multipliers.
+    // ZeroGPT comes from the official API; GPTZero has no official free API,
+    // so it falls back to the local estimator (labeled as such).
+    let postZeroGPT = null;
+    try {
+      const zgPost = await scanZeroGptLive(humanized.rewritten);
+      if (zgPost && !zgPost.scanFailed) postZeroGPT = zgPost.fakePercentage;
+    } catch (e) {
+      console.log('     Post ZeroGPT scan notice:', e.message);
+    }
+    if (postZeroGPT === null) postZeroGPT = (humanized.metrics.sentenceEval.zeroGptScore || 0);
+    const postGPTZero = (humanized.metrics.sentenceEval.overallAiPercent || 0);
     const postClass = postLive ? postLive.class : (postTurnitin <= 35 ? 'human' : 'mixed');
     const humanRate = postLive ? Math.round((postLive.humanRate || 0) * 100) : humanized.metrics.humanPercent;
 
