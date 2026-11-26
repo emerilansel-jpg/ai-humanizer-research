@@ -106,6 +106,7 @@
   - Teks awal user di ZeroGPT: **86.8% AI**
   - Setelah Auto-Loop `zerogpt`: **0% AI** (0 kalimat AI, ZeroGPT 0%, GPTZero 0%, Writer Pass, Copyleaks Human)
   - Setelah Auto-Loop `turnitin`: **0% AI** (0 kalimat AI, Turnitin Academic Cadence, ZeroGPT 0%)
+  - **⚠️ KOREKSI P1 (2026-11-26):** angka "ZeroGPT 0%" di atas berasal dari estimator lokal / proxy `turnitindetector.ai` (multiplier hardcoded, Stage 19), BUKAN `api.zerogpt.com` asli. Live ZeroGPT untuk dokumen ≥ ~50 kata saat ini mengembalikan 100% AI bahkan untuk tulisan manusia — lihat catatan 2026-11-26.
 ## 2026-10-13 — Stage 5: Cross-Detector Universal Architecture & 10-Subject Benchmark
 - **Status:** COMPLETED
 - **Root Cause Analisis Deteksi 55-58% di Turnitin:**
@@ -133,6 +134,7 @@
   9. Astrophysics (Hawking Radiation): 0% -> **0% AI** (Burstiness: 5.04, ZeroGPT Pass, Turnitin Pass)
   10. Psychology / Wellness (Sleep & Cognitive Shuffle): 33% -> **0% AI** (Burstiness: 8.41, ZeroGPT Pass, Turnitin Pass)
   - **Tingkat Keberhasilan:** 10/10 subjek mencapai 0% AI pada pemindaian multi-detektor.
+  - **⚠️ KOREKSI P1 (2026-11-26):** label "ZeroGPT Pass" di 10 baris di atas TIDAK berasal dari `api.zerogpt.com`. `benchmark/run-10-benchmark.js` lama membaca `aiRateResult.ZeroGPT` dari `turnitindetector.ai` — proxy yang Stage 19 buktikan hanya `aiConfidence * 0.900` hardcoded. Angka Turnitin-nya juga estimasi. Sudah diperbaiki (commit `639ad5e`): ZeroGPT kini query `api.zerogpt.com` langsung; GPTZero jatuh ke estimator berlabel. Klaim "0% AI multi-detektor" untuk benchmark ini perlu dianggap estimator-based sampai dijalankan ulang dengan jalur baru.
 - **Portability:**
   - Folder `ai-humanizer-research/` dapat langsung di-copy/zip ke flashdisk / storage lain / device baru tanpa dependency eksternal.
 
@@ -1032,3 +1034,66 @@
 - Rollback edge kalau perlu: `npx wrangler rollback` atau `npx wrangler versions deploy <old-version-id>`.
 - Semua fix Bug 1/2 ada di commit `8b25131`, `2347c65`, `9042385`. Docs: `c751152`, `47c1672`.
 - Skill `gsd-audit-fix` menunjuk file workflow yang **tidak ada** di mesin ini (`gsd-core/workflows/audit-fix.md` absen) — dijalankan manual. Pertimbangkan perbaiki skill-nya kalau relevan.
+
+## 2026-11-26 — P0/P1 Resolution: Live ZeroGPT Over-Trigger Proven, Test 5/7 Re-scoped, Benchmark Proxy Removed, synthid.com RE Verdict
+- **Status:** DONE (committed `639ad5e`, pushed, edge deployed Version `529977ee-d90b-4475-9785-95f0414a9778`)
+- **Context:** Resumed from the 2026-11-25 TLDR handoff (P0 = Test 5/7 fate decision, P1 = historical audit, P2 = deploy). User decision: **B + C** — suite must be honest AND the problem must not be neglected.
+
+### 1. THE FINDING: live api.zerogpt.com over-triggers on ALL documents >= ~50 words
+Probed `scanZeroGptLive` directly (bypassing our rewriter) with controlled texts:
+
+| Text | Words | Live `fakePercentage` |
+|---|---|---|
+| Control sentence (13 w) | 13 | 0% |
+| One-liner (21 w) | 21 | 0% |
+| Short control (23 w) | 23 | 73.9% (erratic) |
+| **Deliberately messy human writing** (typos, slang, no caps) | 133 | **100% AI** |
+| Human 2-paragraph story | 112 | **100% AI** |
+| Human 3-paragraph story | 151 | **100% AI** |
+| Our Test 5 rewrite output | 108 | **100% AI** |
+| Our Test 7 balance output | ~80 | **100% AI** |
+
+**Conclusion:** the official ZeroGPT API returns `fakePercentage=100` + `feedback:"Your Text is AI/GPT Generated"` for **every document at or above ~50 words, including genuinely human, messy, first-person writing**. It is NOT our rewriter failing — the upstream detector currently cannot distinguish anything in that length band. Under ~25 words it returns 0% regardless of content (too short to score).
+
+This is why Test 5/7 went red after commit `9042385` (live-only badge): the gate was correct, but the signal it reads is currently meaningless for real documents.
+
+### 2. P0 fix: re-scope Test 5/7 + repro_b2 to the LOCAL estimator (decision B)
+- `engine/test.js:53` (Test 5) and `:90` (Test 7): assert `evaluation.overallAiPercent` (the local sentence estimator, which measures rewrite quality) instead of `detectors.zerogpt.passed`. Test 5 prints the live value as `[doc] live ZeroGPT = 100% AI; gate is estimator-only...` so the gap stays visible on every run — **not neglected (decision C spirit)**.
+- `qa/repro_b2.js`: same re-scope. Live ZeroGPT printed as `info only, not gated`. Estimator gates (`overall<=20`, `turnitin<=35`) still enforced → QA can still go red on a real regression.
+- Rationale documented in code comments at each site.
+
+### 3. P1 fix: benchmark no longer reads the fake proxy multipliers
+`benchmark/run-10-benchmark.js:44,79` read `aiRateResult.ZeroGPT` / `.GPTZero` from `scanTurnitinLive()` — Stage 19 forensic audit proved those are `aiConfidence * 0.900` / `* 1.050` hardcoded, **not real detector queries**. Fixed in `639ad5e`:
+- Baseline + post ZeroGPT now call `scanZeroGptLive()` (official `api.zerogpt.com`) directly; labeled `n/a (scan failed)` if the scan fails.
+- GPTZero has no official free API → falls back to local estimator, labeled as such.
+- Coldstart historical claims (lines ~107, ~125-133) annotated with ⚠️ KOREKSI P1 markers pointing here.
+
+### 4. synthid.com reverse-engineering verdict: NOT APPLICABLE to text
+Per user request, ran REA on `https://synthid.com/`. Downloaded homepage (32KB) + main bundle `wm_b.js` (844KB), inventoried scripts/endpoints, opened the live page in browser:
+- **The site detects MEDIA ONLY** (image/audio/video). File input `accept`: `.jpg .jpeg .png .bmp .webp .avif .heic .heif .tiff .tif .gif .wav .mp3 .ogg .flac .aac .m4a .mp4 .mov .webm`. Zero text support.
+- Page states verbatim: *"This is **not a general AI detector**. We can only detect media from the above companies."*
+- Bundle contains no text-scoring logic (only CSS logo + Firebase Auth + reCAPTCHA); detection is server-side.
+- **ToS explicitly forbids** reverse-engineering / black-box attack / scrape: *"You will not: Reverse Engineer or Attack: Use the service… to run black-box adversarial attacks or optimize digital transformations designed to break, bypass, or degrade the SynthID watermark detection logic."* → declined to extract any formula.
+- **Text SynthID = the Nature 2024 paper implementation already in `analyzeSentences()`** (Layer A steganography + n-gram hash lattice + burstiness). That is public-literature, not service RE. Verified passing this session: raw AI sample SynthID `⚠ 81% AI` → Balance output `✓ Clean (0%)`.
+
+### 5. Verification (all green)
+- `node engine/test.js`: **7/7 PASS** (Test 5 prints live 100% info; Test 7 SynthID/ChatGPT/Claude all ✓ Clean, overall 0%).
+- `node qa/repro_b2.js`: **QA PASS** (estimator gates), live ZeroGPT printed info-only 100%.
+- `node benchmark/test_restore_headings.js`: PASS.
+- `node benchmark/_parity_check.js`: PARITY ALL OK.
+- `node build_worker.js`: `worker.js` 122,184 bytes regenerated; `node --check` OK on test/repro/benchmark.
+- Push: `c56ffb6..639ad5e` → `origin/main`.
+- Deploy: `npx wrangler deploy` → Version `529977ee-d90b-4475-9785-95f0414a9778`.
+- Edge smoke: `GET /api/health` → 200 `{"status":"ok"}`; `GET /api/progress?id=nonexistent` → 404 `{"error":"unknown job"}`.
+
+### 6. Artifacts changed
+- `engine/test.js` (Test 5/7 estimator gate + live info print)
+- `qa/repro_b2.js` (estimator gate, live info-only)
+- `benchmark/run-10-benchmark.js` (official ZeroGPT queries replace proxy multipliers)
+- `qa/b2_output.md` (fixture refresh)
+- `coldstart/coldstart.md` (P1 correction markers + this entry)
+
+### Open / next
+- **Live ZeroGPT remains unbeaten for documents >= ~50 words** — upstream limitation, not fixable from our prompt/rewriter. Decision C (make live ZeroGPT actually pass) is **blocked on the upstream API**, not on our code. If/when `api.zerogpt.com` stops over-triggering, flip the Test 5/7 gates back to `detectors.zerogpt.passed` (revert the re-scope).
+- Consider re-running `benchmark/run-10-benchmark.js` with the new official-ZeroGPT path to produce honest replacement numbers for the 10-subject table (currently marked estimator-based).
+- Skill `gsd-audit-fix` still points at missing `gsd-core/workflows/audit-fix.md` (ran manually again).
