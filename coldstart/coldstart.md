@@ -1134,3 +1134,54 @@ Implied aiConfidence from each (÷ Stage-19 constants 0.910/1.050/0.980/0.920): 
 ### Open / honest limitations
 - **Official ZeroGPT (api.zerogpt.com) still returns 100% AI for every document >= ~50 words, human or not.** This is upstream and non-negotiable-to-fix from our side; if Google/ZeroGPT changes it, flip the Test 5/7 gates back to `detectors.zerogpt.passed`.
 - turnitindetector.ai proxy remains quarantined (Stage 19) — its GPTZero/CopyLeaks/Writer numbers are decorative, not real.
+
+## 2026-11-26 (sesi lanjutan 2) — RE zerogpt.com + Superhumanizer Pass-Pattern Hunt
+- **Status:** DONE (committed `a95472b`, pushed, edge deployed Version `1dac6e09-77a7-41da-a44d-b6e710640ea1`; `engine/humanizer.js` **0 diff** — tidak ada perubahan kode)
+- **User directive:** RE zerogpt.com untuk cek perubahan, lalu lanjutkan opsi (iterasi agresif).
+
+### 1. RE zerogpt.com — endpoint IDENTIK, tidak ada jalur baru
+- Bundle `/assets/index.a6c6806c.js` + chunks: `baseApiLb = "https://api.zerogpt.com"`, endpoint `POST /api/detect/detectText` body `{input_text}` — **sama persis** dengan `scanZeroGptLive()`. UI ZeroGPT = API = tool kita.
+- Verdict client-side: `isHuman <= 62.5 || (isHuman < 100 && fakePercentage >= 35) || fakePercentage > 40`.
+- `isHuman` diskret kelipatan 12.5 (0/12.5/37.5/50/62.5/87.5/100) → detector menilai ~8 bagian teks. Satu kalimat lolos = +12.5.
+- Host lain (`dapi`, `s1`) hanya untuk auth/dashboard/transform-ws — tidak ada mode scoring alternatif.
+- **Verdict: tidak ada perubahan API yang bisa dimanfaatkan.**
+
+### 2. Pola lolos superhumanizer — template 9 anchor (TERSIMPAN)
+- Artefak: `benchmark/sh_passing_template.json` (9 kalimat anchor), `benchmark/sh_template_results.json`, analisis lengkap `benchmark/zerogpt-re-findings.md`.
+- Hasil terverifikasi (10 run masing-masing, pure template tanpa body):
+  - **100w → 6.1% (10/10 LOLOS)** | **300w → 3.3-15% (10/10 LOLOS)**
+  - 500w → 17.2/100% (2/5) | 700w → 45-100% (0/5) | 1000w → 58-100% (0/5)
+- Konfirmasi ganda: API `scanZeroGptLive` **dan** browser UI zerogpt.com (5.8-6.1% "Human written") identik.
+- Kontrol: 9 kalimat gaya sama tapi konten beda → 100% FAIL. **Konten/vocab spesifik anchor yang menentukan**, bukan panjang/struktur/tense/kontraksi.
+- Teks manusia asli 111w → 100% (over-trigger dikonfirmasi ulang).
+
+### 3. Interleave rescue — diprototipe, DIBATALKAN (tidak stabil)
+- Ide: selang-seling body hasil humanize dengan anchor. Test awal lolos 500/700/1000w (5/5), tapi E2E di engine **tidak konsisten** (300w → 100% padahal pure template lolos).
+- Penyebab: non-determinisme ZeroGPT + sensitivitas komposisi (body panjang vs pendek memberi hasil berbeda). Tidak layak production.
+- **Keputusan: `git checkout engine/humanizer.js` — engine kembali 0 diff.** Template disimpan sebagai referensi, bukan dijalankan otomatis.
+
+### 4. Verification (all green)
+- `npm test` (engine/test.js): **7/7 PASS** (Test 6 sempat merah karena fluktuasi live Turnitin 12%→0% pada run ulang — bukan regresi; `test.js` 0 diff).
+- Semua export utama utuh (`autoLoopHumanize`, `scanZeroGptLive`, `buildHumanizerPrompt` passthrough).
+- Push `e66c84c..a95472b`. Deploy `npx wrangler deploy` → Version `1dac6e09`.
+- Coldstart live: `GET /` → 200 (0.36s), `jdpwriter.com/humanizer` → 200 (2.1s), `GET /api/health` → 200.
+- E2E live `POST /api/auto-loop-humanize`: workers.dev 200 (13.4s, ZG 65.8% est 0%), jdpwriter 200 (54.6s, **ZG 0%** est 0%).
+
+### Open / next (To-Do List SESI BESOK)
+- [ ] **P1 — Putuskan nasib template anchor.** Tersimpan di `benchmark/sh_passing_template.json` tapi TIDAK dipakai engine. Opsi: (A) biarkan sebagai referensi dokumen saja, (B) jadikan pass rescue opsional dengan flag off-by-default + verify sebelum pakai, (C) hapus kalau dianggap noise. **Jangan ubah tanpa keputusan user** (menambah konten asing ke output = menambah risiko fidelity).
+- [ ] **P2 — Investigasi kenapa 500w+ tidak stabil.** Template lolos 100/300w tapi 500w+ flip 17.2↔100%. Hipotesis: bucket detector kehabisan "slot human" di dokumen panjang. Bisa diuji dengan mengukur `isHuman` vs posisi bagian.
+- [ ] **P3 — Audit apakah superhumanizer mode lain (Super Lite / premium engine) punya pola berbeda.** Baru mode Super Ultra yang diuji. Kalau perlu, RE `POST /api/humanize` body `{text, mode, tone, preserveHeadings, usePremiumEngine}` (turnstile token dibutuhkan).
+- [ ] **P4 — Pertimbangkan re-scope Test 5/7 kembali ke `detectors.zerogpt.passed` HANYA untuk dokumen <300w** jika keputusan P1 = (B) dan rescue terbukti stabil.
+- [ ] **P5 — Browser UAT ulang** di localhost:3000 kalau ada perubahan UI (tidak ada perubahan UI di sesi ini).
+
+### State repo saat sesi berakhir
+- Branch `main`, **sync dengan origin** (0 ahead), working tree **bersih**.
+- Suite: engine **7/7 PASS**. Deploy terakhir Version `1dac6e09-77a7-41da-a44d-b6e710640ea1`.
+- Artefak sesi ini (committed): `benchmark/sh_passing_template.json`, `benchmark/sh_template_results.json`, `benchmark/zerogpt-re-findings.md`.
+- `engine/humanizer.js` **tidak diubah** (rescue dibatalkan). Rollback edge: `npx wrangler rollback`.
+
+### Catatan teknis untuk melanjutkan
+- Baca dulu `benchmark/zerogpt-re-findings.md` — ringkasan pola lolos + kenapa teks normal gagal.
+- Jangan percaya satu run ZeroGPT: fluktuatif (teks sama bisa 0% ↔ 100%). Selalu uji ≥5 run.
+- `isHuman` diskret 12.5 = sinyal bucket; `fakePercentage` lebih stabil sebagai metrik.
+- Skill `gsd-audit-fix` masih menunjuk `gsd-core/workflows/audit-fix.md` yang absen — dijalankan manual.
